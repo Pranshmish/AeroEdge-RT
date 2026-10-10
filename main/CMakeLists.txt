@@ -6,4 +6,6 @@ idf_component_register(
     INCLUDE_DIRS "."
                  "../include"
                  "../models"
+    EMBED_FILES "../models/model.bin"
+                "../models/vocab.bin"
 )
