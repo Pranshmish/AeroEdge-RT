@@ -1,0 +1,22 @@
+# ESP-IDF & PlatformIO Build Artifacts
+build/
+.pio/
+.pioenvs/
+.piolibdeps/
+*.bin
+*.elf
+*.map
+
+# Editor & System Files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Python & Tooling Cache
+__pycache__/
+*.py[cod]
+*$py.class
+sdkconfig.old
