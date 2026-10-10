@@ -1008,9 +1008,15 @@ static void run_experiment_a(const char* prompt, int max_gen_steps = 48) {
             print_token_telemetry("Baseline", 1, piece, &telem);
             printf("Generating remaining tokens: > %s", piece);
             fflush(stdout);
-        } else if ((pos + 1) % 100 == 0) {
+        } else if ((pos + 1) % (max_gen_steps >= 2000 ? 500 : 100) == 0) {
             printf(" [%d/%d tokens] ", pos + 1, max_gen_steps);
             fflush(stdout);
+        }
+
+        // Hardware Watchdog & Thermal breathing yield every 50 tokens
+        if ((pos + 1) % 50 == 0) {
+            esp_task_wdt_reset();
+            vTaskDelay(pdMS_TO_TICKS(1));
         }
 
         token = next_token;
@@ -1146,9 +1152,15 @@ static void run_experiment_b(const char* prompt, int max_gen_steps = 48) {
             print_token_telemetry("AeroEdge-RT", 1, piece, &telem);
             printf("Generating remaining tokens: > %s", piece);
             fflush(stdout);
-        } else if ((pos + 1) % 100 == 0) {
+        } else if ((pos + 1) % (max_gen_steps >= 2000 ? 500 : 100) == 0) {
             printf(" [%d/%d tokens] ", pos + 1, max_gen_steps);
             fflush(stdout);
+        }
+
+        // Hardware Watchdog & Thermal breathing yield every 50 tokens
+        if ((pos + 1) % 50 == 0) {
+            esp_task_wdt_reset();
+            vTaskDelay(pdMS_TO_TICKS(1));
         }
 
         token = next_token;
