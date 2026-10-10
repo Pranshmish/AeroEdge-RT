@@ -7,5 +7,6 @@ idf_component_register(
                  "../include"
                  "../models"
     EMBED_FILES "../models/model.bin"
+                "../models/model_q8.bin"
                 "../models/vocab.bin"
 )

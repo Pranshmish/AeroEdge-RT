@@ -1,5 +1,5 @@
 {
-  "experiment": "Experiment B (AeroEdge-RT Engine)",
+  "experiment": "Experiment B (AeroEdge-RT)",
   "hardware": {
     "chip": "ESP32-D0WD-V3",
     "architecture": "Xtensa LX6 Dual-Core",
@@ -15,18 +15,21 @@
     "n_kv_heads": 4,
     "vocab_size": 512,
     "total_params": 264128,
-    "weights_bytes": 1056540,
-    "storage_mode": "Zero-Copy Flash XIP (DROM)"
+    "weights_bytes": 423676,
+    "quantization": "INT8 Symmetric with Per-Row Scale",
+    "storage_mode": "Zero-Copy Flash ROM + Fast Internal SRAM Hot Layer Cache (23.3 KB)"
   },
   "benchmark_results": {
     "prompt": "once upon a time",
+    "generated_text": "once upon a time, there was a boy named Timmy. Timmy had a fake band-aid who had a big dog. He had a big brown candy",
     "tokens_generated": 48,
-    "total_time_seconds": 8.927,
-    "tokens_per_second": 5.38,
-    "mean_latency_ms": 186.0,
-    "jitter_ms": 12.38,
-    "memory_strategy": "Zero-Allocation Static High-Speed SRAM Pool",
-    "dynamic_allocations_per_token": 0,
-    "free_sram_bytes": 186540
+    "total_time_seconds": 2.571,
+    "tokens_per_second": 18.67,
+    "mean_latency_ms": 53.6,
+    "jitter_ms": 10.95,
+    "speedup_vs_baseline": 3.20,
+    "latency_reduction_percent": 68.7,
+    "memory_strategy": "Zero-Allocation Static Internal SRAM Pool",
+    "free_sram_bytes": 166508
   }
 }

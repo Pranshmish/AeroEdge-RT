@@ -20,12 +20,13 @@
   },
   "benchmark_results": {
     "prompt": "once upon a time",
+    "generated_text": "once upon a time, there was a little bird named Toby. Toby loved to paint with his friends. One day, Tommy went for a walk",
     "tokens_generated": 48,
-    "total_time_seconds": 9.150,
-    "tokens_per_second": 5.25,
-    "mean_latency_ms": 190.6,
-    "jitter_ms": 12.39,
+    "total_time_seconds": 8.216,
+    "tokens_per_second": 5.84,
+    "mean_latency_ms": 171.2,
+    "jitter_ms": 10.14,
     "memory_strategy": "Dynamic malloc/free per token",
-    "free_sram_bytes": 186540
+    "free_sram_bytes": 166508
   }
 }
