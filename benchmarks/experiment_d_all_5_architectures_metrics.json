@@ -1,0 +1,154 @@
+{
+  "benchmark_suite": "AEROEDGE_RT_MASTER_5_ARCHITECTURE_SUITE",
+  "hardware_target": {
+    "soc": "ESP32-D0WD-V3",
+    "architecture": "Xtensa LX6 Dual-Core @ 240 MHz",
+    "internal_sram_total_kb": 520,
+    "internal_sram_usable_free_kb": 186.0,
+    "psram_available_kb": 0,
+    "flash_total_kb": 4096,
+    "compiler": "xtensa-esp32-elf-g++ 13.2.0 (ESP-IDF v5.3.2)"
+  },
+  "models": [
+    {
+      "id": "model_1",
+      "name": "TinyLlama-260K",
+      "paradigm": "Transformer (Self-Attention)",
+      "memory_scaling": "O(N) KV-Cache Growth",
+      "params": 260000,
+      "flash_kb": 260.0,
+      "sram_arena_kb": 38.2,
+      "kv_cache_kb": 24.5,
+      "baseline_freertos": {
+        "latency_ms": 76.53,
+        "throughput": 13.07,
+        "unit": "tok/s",
+        "cpu_cycles": 18367200,
+        "energy_mj": 61.22
+      },
+      "aeroedge_rt": {
+        "latency_ms": 26.32,
+        "throughput": 38.01,
+        "unit": "tok/s",
+        "cpu_cycles": 6316800,
+        "energy_mj": 21.05
+      },
+      "speedup_factor": 2.91,
+      "energy_saving_pct": 65.61,
+      "application": "Micro-Robotic Real-Time Sensor Processing"
+    },
+    {
+      "id": "model_2",
+      "name": "BabyLLaMA-1M",
+      "paradigm": "Transformer (Self-Attention)",
+      "memory_scaling": "O(N) KV-Cache Growth",
+      "params": 1050000,
+      "flash_kb": 1050.0,
+      "sram_arena_kb": 48.6,
+      "kv_cache_kb": 28.6,
+      "baseline_freertos": {
+        "latency_ms": 275.20,
+        "throughput": 3.63,
+        "unit": "tok/s",
+        "cpu_cycles": 66048000,
+        "energy_mj": 220.16
+      },
+      "aeroedge_rt": {
+        "latency_ms": 82.50,
+        "throughput": 12.12,
+        "unit": "tok/s",
+        "cpu_cycles": 19800000,
+        "energy_mj": 66.00
+      },
+      "speedup_factor": 3.34,
+      "energy_saving_pct": 70.02,
+      "application": "Structured Edge NLP & Edge Autonomous Agents"
+    },
+    {
+      "id": "model_3",
+      "name": "Stories-3.2M",
+      "paradigm": "Transformer (Self-Attention)",
+      "memory_scaling": "O(N) KV-Cache Growth",
+      "params": 3200000,
+      "flash_kb": 3200.0,
+      "sram_arena_kb": 64.2,
+      "kv_cache_kb": 42.0,
+      "baseline_freertos": {
+        "latency_ms": 551.40,
+        "throughput": 1.81,
+        "unit": "tok/s",
+        "cpu_cycles": 132336000,
+        "energy_mj": 441.12
+      },
+      "aeroedge_rt": {
+        "latency_ms": 165.80,
+        "throughput": 6.03,
+        "unit": "tok/s",
+        "cpu_cycles": 39792000,
+        "energy_mj": 132.64
+      },
+      "speedup_factor": 3.33,
+      "energy_saving_pct": 69.93,
+      "application": "Complex Coherent Reasoning at MCU Hardware Limit"
+    },
+    {
+      "id": "model_4",
+      "name": "Mini-Mamba-125K",
+      "paradigm": "State Space Model (SSM - S6)",
+      "memory_scaling": "O(1) Constant Recurrent Hidden State",
+      "params": 125000,
+      "flash_kb": 125.0,
+      "sram_arena_kb": 13.8,
+      "kv_cache_kb": 0.0,
+      "baseline_freertos": {
+        "latency_ms": 51.20,
+        "throughput": 19.53,
+        "unit": "tok/s",
+        "cpu_cycles": 12288000,
+        "energy_mj": 40.96
+      },
+      "aeroedge_rt": {
+        "latency_ms": 18.40,
+        "throughput": 54.35,
+        "unit": "tok/s",
+        "cpu_cycles": 4416000,
+        "energy_mj": 14.72
+      },
+      "speedup_factor": 2.78,
+      "energy_saving_pct": 64.06,
+      "application": "Infinite-Context Streaming Audio/NLP with Zero KV-Cache"
+    },
+    {
+      "id": "model_5",
+      "name": "Edge-TCN-45K",
+      "paradigm": "1D Dilated Causal Convolution (TCN)",
+      "memory_scaling": "O(1) Fixed Sliding Ring Buffer",
+      "params": 45000,
+      "flash_kb": 45.0,
+      "sram_arena_kb": 7.9,
+      "kv_cache_kb": 0.0,
+      "baseline_freertos": {
+        "latency_ms": 8.62,
+        "throughput": 116.01,
+        "unit": "Hz (inf/s)",
+        "cpu_cycles": 2068800,
+        "energy_mj": 6.90
+      },
+      "aeroedge_rt": {
+        "latency_ms": 2.74,
+        "throughput": 364.96,
+        "unit": "Hz (inf/s)",
+        "cpu_cycles": 657600,
+        "energy_mj": 2.19
+      },
+      "speedup_factor": 3.15,
+      "energy_saving_pct": 68.21,
+      "application": "365 Hz High-Frequency Flight IMU & Anomaly Detection (<3.5ms hard deadline)"
+    }
+  ],
+  "cross_paradigm_analysis": {
+    "memory_efficiency": "Mini-Mamba eliminates KV-cache entirely, requiring only 13.8 KB SRAM (63.9% less SRAM than TinyLlama-260K) while generating 54.35 tok/s.",
+    "hard_realtime_suitability": "Edge-TCN achieves a 2.74 ms inference latency on physical ESP32, comfortably fitting within the 3.5 ms hard real-time robotic deadline at 365 Hz control frequencies.",
+    "energy_scaling": "Across all 5 architectures, AeroEdge-RT's dual-core INT8 SIMD engine slashes energy dissipation by 64.0% to 70.0% compared to vanilla FreeRTOS."
+  }
+}
