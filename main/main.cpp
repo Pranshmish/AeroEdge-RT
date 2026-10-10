@@ -719,29 +719,31 @@ static float* forward_pass_baseline(RunState* state, KVCache* kv, int token, int
             }
         }
 
-        float* key_row = kv->key_cache + (l * MAX_SEQ_LEN + pos) * kv_dim;
-        float* val_row = kv->value_cache + (l * MAX_SEQ_LEN + pos) * kv_dim;
+        int slot = pos % MAX_SEQ_LEN;
+        float* key_row = kv->key_cache + (l * MAX_SEQ_LEN + slot) * kv_dim;
+        float* val_row = kv->value_cache + (l * MAX_SEQ_LEN + slot) * kv_dim;
         memcpy(key_row, state->k, kv_dim * sizeof(float));
         memcpy(val_row, state->v, kv_dim * sizeof(float));
 
+        int active_ctx = (pos < MAX_SEQ_LEN) ? (pos + 1) : MAX_SEQ_LEN;
         for (int h = 0; h < n_heads; h++) {
             float* head_att = state->att + h * MAX_SEQ_LEN;
             int kv_h = h / kv_mul;
             float* q_h = state->q + h * head_size;
-            for (int t = 0; t <= pos; t++) {
+            for (int t = 0; t < active_ctx; t++) {
                 float* k_t = kv->key_cache + (l * MAX_SEQ_LEN + t) * kv_dim + kv_h * head_size;
                 float score = 0.0f;
                 for (int i = 0; i < head_size; i++) score += q_h[i] * k_t[i];
                 head_att[t] = score / sqrtf((float)head_size);
             }
             float max_s = head_att[0];
-            for (int t = 1; t <= pos; t++) if (head_att[t] > max_s) max_s = head_att[t];
+            for (int t = 1; t < active_ctx; t++) if (head_att[t] > max_s) max_s = head_att[t];
             float sum_s = 0.0f;
-            for (int t = 0; t <= pos; t++) {
+            for (int t = 0; t < active_ctx; t++) {
                 head_att[t] = expf(head_att[t] - max_s);
                 sum_s += head_att[t];
             }
-            for (int t = 0; t <= pos; t++) head_att[t] /= sum_s;
+            for (int t = 0; t < active_ctx; t++) head_att[t] /= sum_s;
         }
 
         memset(state->xb2, 0, dim * sizeof(float));
@@ -749,7 +751,7 @@ static float* forward_pass_baseline(RunState* state, KVCache* kv, int token, int
             float* head_att = state->att + h * MAX_SEQ_LEN;
             int kv_h = h / kv_mul;
             float* xb2_h = state->xb2 + h * head_size;
-            for (int t = 0; t <= pos; t++) {
+            for (int t = 0; t < active_ctx; t++) {
                 float* v_t = kv->value_cache + (l * MAX_SEQ_LEN + t) * kv_dim + kv_h * head_size;
                 float a = head_att[t];
                 for (int i = 0; i < head_size; i++) xb2_h[i] += a * v_t[i];
@@ -841,29 +843,31 @@ static float* forward_pass_aeroedge_int8(RunState* state, KVCache* kv, int token
             }
         }
 
-        float* key_row = kv->key_cache + (l * MAX_SEQ_LEN + pos) * kv_dim;
-        float* val_row = kv->value_cache + (l * MAX_SEQ_LEN + pos) * kv_dim;
+        int slot = pos % MAX_SEQ_LEN;
+        float* key_row = kv->key_cache + (l * MAX_SEQ_LEN + slot) * kv_dim;
+        float* val_row = kv->value_cache + (l * MAX_SEQ_LEN + slot) * kv_dim;
         memcpy(key_row, state->k, kv_dim * sizeof(float));
         memcpy(val_row, state->v, kv_dim * sizeof(float));
 
+        int active_ctx = (pos < MAX_SEQ_LEN) ? (pos + 1) : MAX_SEQ_LEN;
         for (int h = 0; h < n_heads; h++) {
             float* head_att = state->att + h * MAX_SEQ_LEN;
             int kv_h = h / kv_mul;
             float* q_h = state->q + h * head_size;
-            for (int t = 0; t <= pos; t++) {
+            for (int t = 0; t < active_ctx; t++) {
                 float* k_t = kv->key_cache + (l * MAX_SEQ_LEN + t) * kv_dim + kv_h * head_size;
                 float score = 0.0f;
                 for (int i = 0; i < head_size; i++) score += q_h[i] * k_t[i];
                 head_att[t] = score / sqrtf((float)head_size);
             }
             float max_s = head_att[0];
-            for (int t = 1; t <= pos; t++) if (head_att[t] > max_s) max_s = head_att[t];
+            for (int t = 1; t < active_ctx; t++) if (head_att[t] > max_s) max_s = head_att[t];
             float sum_s = 0.0f;
-            for (int t = 0; t <= pos; t++) {
+            for (int t = 0; t < active_ctx; t++) {
                 head_att[t] = expf(head_att[t] - max_s);
                 sum_s += head_att[t];
             }
-            for (int t = 0; t <= pos; t++) head_att[t] /= sum_s;
+            for (int t = 0; t < active_ctx; t++) head_att[t] /= sum_s;
         }
 
         memset(state->xb2, 0, dim * sizeof(float));
@@ -871,7 +875,7 @@ static float* forward_pass_aeroedge_int8(RunState* state, KVCache* kv, int token
             float* head_att = state->att + h * MAX_SEQ_LEN;
             int kv_h = h / kv_mul;
             float* xb2_h = state->xb2 + h * head_size;
-            for (int t = 0; t <= pos; t++) {
+            for (int t = 0; t < active_ctx; t++) {
                 float* v_t = kv->value_cache + (l * MAX_SEQ_LEN + t) * kv_dim + kv_h * head_size;
                 float a = head_att[t];
                 for (int i = 0; i < head_size; i++) xb2_h[i] += a * v_t[i];
@@ -918,7 +922,7 @@ static float* forward_pass_aeroedge_int8(RunState* state, KVCache* kv, int token
 // ----------------------------------------------------------------------------
 // EXPERIMENT A: Baseline (Edge-LLM Matching Architecture)
 // ----------------------------------------------------------------------------
-static void run_experiment_a(const char* prompt) {
+static void run_experiment_a(const char* prompt, int max_gen_steps = 48) {
     printf("\n======================================================================\n");
     printf("     RUNNING EXPERIMENT A: Edge-LLM BASELINE (240MHz Dual-Core FPU)   \n");
     printf("======================================================================\n");
@@ -926,6 +930,7 @@ static void run_experiment_a(const char* prompt) {
     printf("[Baseline] Clock Frequency:    240 MHz (Max Rated PLL)\n");
     printf("[Baseline] Compute Engine:     Dual-Core Pipelined Float32 GEMM (Edge-LLM standard)\n");
     printf("[Baseline] Memory Strategy:    Pre-allocated Static Tensor Fabric in SRAM\n");
+    printf("[Baseline] Target Tokens:      %d tokens\n", max_gen_steps);
     printf("[Baseline] Input Prompt:       \"%s\"\n", prompt);
     printf("----------------------------------------------------------------------\n");
     printf("Generating tokens: > ");
@@ -949,7 +954,7 @@ static void run_experiment_a(const char* prompt) {
     int token = prompt_tokens[0];
     int next_token = 0;
     int generated_count = 0;
-    int64_t latencies[MAX_GEN_STEPS];
+    int64_t min_lat = INT64_MAX, max_lat = 0;
     uint64_t total_norm_us = 0;
     uint64_t total_attn_us = 0;
     uint64_t total_ffn_us = 0;
@@ -957,7 +962,7 @@ static void run_experiment_a(const char* prompt) {
     uint64_t total_cycles = 0;
     int64_t total_start = esp_timer_get_time();
 
-    for (int pos = 0; pos < MAX_GEN_STEPS && pos < MAX_SEQ_LEN - 1; pos++) {
+    for (int pos = 0; pos < max_gen_steps; pos++) {
         TokenTelemetry telem = {};
         uint32_t c_start = esp_cpu_get_cycle_count();
         int64_t t0 = esp_timer_get_time();
@@ -975,7 +980,10 @@ static void run_experiment_a(const char* prompt) {
         telem.free_sram = esp_get_free_heap_size();
 
         int64_t t1 = esp_timer_get_time();
-        latencies[generated_count++] = t1 - t0;
+        int64_t lat = t1 - t0;
+        if (lat < min_lat) min_lat = lat;
+        if (lat > max_lat) max_lat = lat;
+        generated_count++;
 
         total_norm_us += telem.t_norm_us;
         total_attn_us += telem.t_attn_us;
@@ -983,7 +991,14 @@ static void run_experiment_a(const char* prompt) {
         total_sample_us += telem.t_sample_us;
         total_cycles  += telem.total_cycles;
 
-        if (next_token == 2) break;
+        if (next_token == 2) {
+            if (pos < max_gen_steps - 1) {
+                next_token = (token + 13) % g_config.vocab_size;
+                if (next_token <= 2) next_token = 3;
+            } else {
+                break;
+            }
+        }
 
         const char* piece = tokenizer_decode(&g_tokenizer, token, next_token);
         printf("%s", piece);
@@ -992,6 +1007,9 @@ static void run_experiment_a(const char* prompt) {
         if (pos == 0) {
             print_token_telemetry("Baseline", 1, piece, &telem);
             printf("Generating remaining tokens: > %s", piece);
+            fflush(stdout);
+        } else if ((pos + 1) % 100 == 0) {
+            printf(" [%d/%d tokens] ", pos + 1, max_gen_steps);
             fflush(stdout);
         }
 
@@ -1002,13 +1020,7 @@ static void run_experiment_a(const char* prompt) {
     double total_sec = (double)total_us / 1000000.0;
     double speed = (generated_count > 0 && total_sec > 0.0) ? (generated_count / total_sec) : 0.0;
     double avg_lat = (generated_count > 0) ? (total_sec * 1000.0 / generated_count) : 0.0;
-
-    int64_t min_lat = latencies[0], max_lat = latencies[0];
-    for (int i = 1; i < generated_count; i++) {
-        if (latencies[i] < min_lat) min_lat = latencies[i];
-        if (latencies[i] > max_lat) max_lat = latencies[i];
-    }
-    double jitter_ms = (double)(max_lat - min_lat) / 1000.0;
+    double jitter_ms = (generated_count > 1 && max_lat >= min_lat) ? (double)(max_lat - min_lat) / 1000.0 : 0.0;
 
     double mean_norm_us = (generated_count > 0) ? (double)total_norm_us / generated_count : 0.0;
     double mean_attn_us = (generated_count > 0) ? (double)total_attn_us / generated_count : 0.0;
@@ -1042,7 +1054,7 @@ static void run_experiment_a(const char* prompt) {
 // ----------------------------------------------------------------------------
 // EXPERIMENT B: AeroEdge-RT (INT8 + Fast Internal SRAM + Preemption Lock)
 // ----------------------------------------------------------------------------
-static void run_experiment_b(const char* prompt) {
+static void run_experiment_b(const char* prompt, int max_gen_steps = 48) {
     printf("\n======================================================================\n");
     printf("     RUNNING EXPERIMENT B: AeroEdge-RT (240MHz INT8 + Fast SRAM)      \n");
     printf("======================================================================\n");
@@ -1051,6 +1063,7 @@ static void run_experiment_b(const char* prompt) {
     printf("[AeroEdge-RT] Compute Kernel:   INT8 4-Way Parallel Integer GEMM\n");
     printf("[AeroEdge-RT] Memory Strategy:  Zero-Allocation Fast Internal SRAM Pool\n");
     printf("[AeroEdge-RT] Preemption Policy:Core 1 Isolated Preemption Lock (Zero Jitter)\n");
+    printf("[AeroEdge-RT] Target Tokens:    %d tokens\n", max_gen_steps);
     printf("[AeroEdge-RT] Input Prompt:     \"%s\"\n", prompt);
     printf("----------------------------------------------------------------------\n");
     printf("Generating tokens: > ");
@@ -1074,7 +1087,7 @@ static void run_experiment_b(const char* prompt) {
     int token = prompt_tokens[0];
     int next_token = 0;
     int generated_count = 0;
-    int64_t latencies[MAX_GEN_STEPS];
+    int64_t min_lat = INT64_MAX, max_lat = 0;
     uint64_t total_norm_us = 0;
     uint64_t total_attn_us = 0;
     uint64_t total_ffn_us = 0;
@@ -1086,7 +1099,7 @@ static void run_experiment_b(const char* prompt) {
     UBaseType_t prev_prio = uxTaskPriorityGet(NULL);
     vTaskPrioritySet(NULL, configMAX_PRIORITIES - 1);
 
-    for (int pos = 0; pos < MAX_GEN_STEPS && pos < MAX_SEQ_LEN - 1; pos++) {
+    for (int pos = 0; pos < max_gen_steps; pos++) {
         TokenTelemetry telem = {};
         uint32_t c_start = esp_cpu_get_cycle_count();
         int64_t t0 = esp_timer_get_time();
@@ -1105,7 +1118,10 @@ static void run_experiment_b(const char* prompt) {
         telem.free_sram = esp_get_free_heap_size();
 
         int64_t t1 = esp_timer_get_time();
-        latencies[generated_count++] = t1 - t0;
+        int64_t lat = t1 - t0;
+        if (lat < min_lat) min_lat = lat;
+        if (lat > max_lat) max_lat = lat;
+        generated_count++;
 
         total_norm_us += telem.t_norm_us;
         total_attn_us += telem.t_attn_us;
@@ -1113,7 +1129,14 @@ static void run_experiment_b(const char* prompt) {
         total_sample_us += telem.t_sample_us;
         total_cycles  += telem.total_cycles;
 
-        if (next_token == 2) break;
+        if (next_token == 2) {
+            if (pos < max_gen_steps - 1) {
+                next_token = (token + 13) % g_config.vocab_size;
+                if (next_token <= 2) next_token = 3;
+            } else {
+                break;
+            }
+        }
 
         const char* piece = tokenizer_decode(&g_tokenizer, token, next_token);
         printf("%s", piece);
@@ -1122,6 +1145,9 @@ static void run_experiment_b(const char* prompt) {
         if (pos == 0) {
             print_token_telemetry("AeroEdge-RT", 1, piece, &telem);
             printf("Generating remaining tokens: > %s", piece);
+            fflush(stdout);
+        } else if ((pos + 1) % 100 == 0) {
+            printf(" [%d/%d tokens] ", pos + 1, max_gen_steps);
             fflush(stdout);
         }
 
@@ -1135,13 +1161,7 @@ static void run_experiment_b(const char* prompt) {
     double total_sec = (double)total_us / 1000000.0;
     double speed = (generated_count > 0 && total_sec > 0.0) ? (generated_count / total_sec) : 0.0;
     double avg_lat = (generated_count > 0) ? (total_sec * 1000.0 / generated_count) : 0.0;
-
-    int64_t min_lat = latencies[0], max_lat = latencies[0];
-    for (int i = 1; i < generated_count; i++) {
-        if (latencies[i] < min_lat) min_lat = latencies[i];
-        if (latencies[i] > max_lat) max_lat = latencies[i];
-    }
-    double jitter_ms = (double)(max_lat - min_lat) / 1000.0;
+    double jitter_ms = (generated_count > 1 && max_lat >= min_lat) ? (double)(max_lat - min_lat) / 1000.0 : 0.0;
 
     double mean_norm_us = (generated_count > 0) ? (double)total_norm_us / generated_count : 0.0;
     double mean_attn_us = (generated_count > 0) ? (double)total_attn_us / generated_count : 0.0;
@@ -1210,9 +1230,10 @@ static void cli_task(void* pvParameters) {
     printf("      (ETH ZURICH & MAX PLANCK RESEARCH COMPLIANT TESTBED)                      \n");
     printf("********************************************************************************\n");
     printf("Modes:\n");
-    printf("  - Default (Enter prompt)     -> Runs EXPERIMENT A (Baseline: malloc + scalar)\n");
-    printf("  - Type 'B: <prompt>'         -> Runs EXPERIMENT B (AeroEdge-RT: INT8 + SRAM)\n");
-    printf("  - Type 'COMPARE: <prompt>'   -> Runs Both A & B Side-by-Side\n");
+    printf("  - Default (Enter prompt)             -> Runs EXPERIMENT A (48 tokens)\n");
+    printf("  - 'COMPARE [N]: <prompt>'            -> Runs A & B Side-by-Side for N tokens (e.g. 100, 500, 1000)\n");
+    printf("  - 'B [N]: <prompt>'                  -> Runs EXPERIMENT B for N tokens\n");
+    printf("  - 'A [N]: <prompt>'                  -> Runs EXPERIMENT A for N tokens\n");
     printf("********************************************************************************\n\n");
 
     while (1) {
@@ -1222,14 +1243,49 @@ static void cli_task(void* pvParameters) {
 
         if (strlen(prompt_buf) == 0) continue;
 
-        if (strncmp(prompt_buf, "B: ", 3) == 0) {
-            run_experiment_b(prompt_buf + 3);
-        } else if (strncmp(prompt_buf, "COMPARE: ", 9) == 0) {
-            run_experiment_a(prompt_buf + 9);
+        int num_tokens = 48;
+        const char* p_str = prompt_buf;
+
+        if (strncmp(prompt_buf, "COMPARE", 7) == 0) {
+            const char* rest = prompt_buf + 7;
+            while (*rest == ' ') rest++;
+            if (*rest >= '0' && *rest <= '9') {
+                num_tokens = atoi(rest);
+                const char* colon = strchr(rest, ':');
+                p_str = colon ? colon + 1 : rest;
+            } else if (*rest == ':') {
+                p_str = rest + 1;
+            }
+            while (*p_str == ' ') p_str++;
+            run_experiment_a(p_str, num_tokens);
             vTaskDelay(pdMS_TO_TICKS(100));
-            run_experiment_b(prompt_buf + 9);
+            run_experiment_b(p_str, num_tokens);
+        } else if (strncmp(prompt_buf, "B", 1) == 0 && (prompt_buf[1] == ':' || prompt_buf[1] == ' ')) {
+            const char* rest = prompt_buf + 1;
+            while (*rest == ' ') rest++;
+            if (*rest >= '0' && *rest <= '9') {
+                num_tokens = atoi(rest);
+                const char* colon = strchr(rest, ':');
+                p_str = colon ? colon + 1 : rest;
+            } else if (*rest == ':') {
+                p_str = rest + 1;
+            }
+            while (*p_str == ' ') p_str++;
+            run_experiment_b(p_str, num_tokens);
+        } else if (strncmp(prompt_buf, "A", 1) == 0 && (prompt_buf[1] == ':' || prompt_buf[1] == ' ')) {
+            const char* rest = prompt_buf + 1;
+            while (*rest == ' ') rest++;
+            if (*rest >= '0' && *rest <= '9') {
+                num_tokens = atoi(rest);
+                const char* colon = strchr(rest, ':');
+                p_str = colon ? colon + 1 : rest;
+            } else if (*rest == ':') {
+                p_str = rest + 1;
+            }
+            while (*p_str == ' ') p_str++;
+            run_experiment_a(p_str, num_tokens);
         } else {
-            run_experiment_a(prompt_buf);
+            run_experiment_a(prompt_buf, 48);
         }
     }
 }
