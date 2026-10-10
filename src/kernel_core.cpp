@@ -28,14 +28,14 @@ bool AeroEdgeKernel::init() noexcept {
     arena_.reset();
 
 #ifdef ESP_PLATFORM
-    // Launch Core 1 bare-metal isolated worker pinned strictly to Core 1
-    // High priority ensures preemption immunity from standard application tasks
+    // Launch Core 1 bare-metal worker pinned strictly to Core 1
+    // Priority 5 ensures high performance without starving kernel idle watchdog
     BaseType_t res = xTaskCreatePinnedToCore(
         core1_task_entry,
         "AeroEdge_Core1",
         8192,
         this,
-        configMAX_PRIORITIES - 1,
+        5,
         &core1_task_handle_,
         1 // Core 1
     );
@@ -67,8 +67,8 @@ void AeroEdgeKernel::core1_worker_loop() noexcept {
     while (is_running_) {
         if (!req_queue_.pop(req)) {
 #ifdef ESP_PLATFORM
-            // Microsecond yield to let watchdog feed if queue is temporarily idle
-            vTaskDelay(pdMS_TO_TICKS(1));
+            // Yield at least 1 FreeRTOS tick so IDLE1 can feed the task watchdog
+            vTaskDelay(1);
 #endif
             continue;
         }
