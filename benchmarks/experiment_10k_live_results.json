@@ -1,0 +1,53 @@
+{
+  "benchmark_name": "10000_tokens_live_silicon_stress_test",
+  "target_chip": "ESP32-D0WD-V3 (revision v3.1)",
+  "clock_mhz": 240,
+  "flash_speed_mhz": 80,
+  "flash_mode": "DIO",
+  "tokens_generated": 10000,
+  "experiment_a_baseline": {
+    "framework": "Edge-LLM (Float32 Dual-Core Scalar)",
+    "tokens": 10000,
+    "total_time_seconds": 833.927,
+    "total_time_minutes": 13.899,
+    "speed_tokens_per_sec": 11.99,
+    "latency_ms_per_token": 83.4,
+    "mean_cpu_cycles_per_token": 19936802,
+    "total_cpu_cycles": 199368020000,
+    "stage1_norm_us": 640.6,
+    "stage2_attn_us": 28448.9,
+    "stage3_ffn_us": 44448.6,
+    "stage4_sample_us": 9412.2,
+    "jitter_ms": 12.14,
+    "final_free_sram_bytes": 166492,
+    "energy_joules_at_3v3": 660.47
+  },
+  "experiment_b_aeroedge": {
+    "framework": "AeroEdge-RT (INT8 Vectorized + SRAM Layer 0)",
+    "tokens": 10000,
+    "total_time_seconds": 331.251,
+    "total_time_minutes": 5.521,
+    "speed_tokens_per_sec": 30.19,
+    "latency_ms_per_token": 33.1,
+    "mean_cpu_cycles_per_token": 7872672,
+    "total_cpu_cycles": 78726720000,
+    "stage1_norm_us": 444.5,
+    "stage2_attn_us": 16277.8,
+    "stage3_ffn_us": 12748.9,
+    "stage4_sample_us": 3272.2,
+    "jitter_ms": 11.98,
+    "final_free_sram_bytes": 166328,
+    "energy_joules_at_3v3": 262.35
+  },
+  "delta_savings": {
+    "wall_clock_time_saved_seconds": 502.676,
+    "wall_clock_time_saved_minutes": 8.378,
+    "net_speedup": 2.518,
+    "cycles_saved_per_token": 12064130,
+    "total_cpu_cycles_saved": 120641300000,
+    "battery_energy_saved_joules": 398.12,
+    "memory_leak_bytes": 0,
+    "oom_crashes": 0,
+    "watchdog_resets": 0
+  }
+}
