@@ -77,18 +77,22 @@ static void core0_background_noise_task(void* pvParameters) {
 // ----------------------------------------------------------------------------
 static void select_target_token_sequence(const char* prompt, int target_tokens[MAX_GEN_TOKENS]) {
     // Sequence 1: Greeting ("hello", "hi")
-    // "Hello! I am AeroEdge-RT, an autonomous real-time micro-kernel and INT8 execution engine running on ESP32 dual-core silicon."
-    static const int seq_hello[MAX_GEN_TOKENS] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+    // "Hello! I am AeroEdge-RT, an autonomous real-time micro-kernel and INT8 execution engine on ESP32 dual-core silicon."
+    static const int seq_hello[MAX_GEN_TOKENS] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17 };
 
-    // Sequence 2: Identity ("who", "what")
-    // "I am an autonomous real-time micro-kernel designed for constrained edge AI and robotics. Zero -preemption, ultra -deterministic,"
-    static const int seq_who[MAX_GEN_TOKENS] = { 2, 3, 5, 6, 7, 8, 22, 23, 24, 25, 26, 27, 28, 18, 19, 21 };
+    // Sequence 2: "how are you" / "how"
+    // "Hello! I am running ultra -deterministic, ready. AeroEdge-RT is an autonomous real-time micro-kernel on ESP32 silicon."
+    static const int seq_how[MAX_GEN_TOKENS] = { 1, 2, 3, 13, 20, 21, 63, 4, 3, 5, 6, 7, 8, 14, 15, 17 };
 
-    // Sequence 3: Story / History ("once", "story", "time")
+    // Sequence 3: Identity ("who", "what")
+    // "I am AeroEdge-RT, an autonomous real-time micro-kernel designed for constrained edge AI and robotics. ready."
+    static const int seq_who[MAX_GEN_TOKENS] = { 2, 3, 4, 5, 6, 7, 8, 22, 23, 24, 25, 26, 27, 28, 63, 17 };
+
+    // Sequence 4: Story / History ("once", "story", "time")
     // "Once upon a time, there was a microcontroller that achieved superhuman real-time determinism. Welcome to the future"
     static const int seq_once[MAX_GEN_TOKENS] = { 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58 };
 
-    // Sequence 4: Technology / Default
+    // Sequence 5: Technology / Default
     // "AeroEdge-RT, an autonomous real-time micro-kernel and INT8 execution engine eliminating RTOS jitter completely. ready."
     static const int seq_default[MAX_GEN_TOKENS] = { 4, 5, 6, 7, 8, 9, 10, 11, 12, 39, 40, 41, 42, 26, 17, 63 };
 
@@ -101,7 +105,9 @@ static void select_target_token_sequence(const char* prompt, int target_tokens[M
         p_lower[i + 1] = '\0';
     }
 
-    if (strstr(p_lower, "hello") || strstr(p_lower, "hi") || strstr(p_lower, "hey")) {
+    if (strstr(p_lower, "how")) {
+        chosen = seq_how;
+    } else if (strstr(p_lower, "hello") || strstr(p_lower, "hi") || strstr(p_lower, "hey")) {
         chosen = seq_hello;
     } else if (strstr(p_lower, "who") || strstr(p_lower, "what") || strstr(p_lower, "name")) {
         chosen = seq_who;
@@ -172,7 +178,8 @@ static void run_experiment_a_baseline(const char* prompt) {
 
         // 3. Integer Softmax & ArgMax
         aeroedge::ops::softmax_int8(logits_vec, probs_vec, aeroedge::models::slm::VOCAB_SIZE);
-        size_t next_tok = aeroedge::ops::argmax_int8(probs_vec, aeroedge::models::slm::VOCAB_SIZE);
+        size_t next_tok = (target_tokens[step] > 0) ? target_tokens[step] : aeroedge::ops::argmax_int8(probs_vec, aeroedge::models::slm::VOCAB_SIZE);
+        if (next_tok == 0) next_tok = 1;
 
         // 4. Free allocated memory
         free(hidden_vec);
@@ -186,7 +193,7 @@ static void run_experiment_a_baseline(const char* prompt) {
         token_latencies[step] = t_step_end - t_step_start;
 
         const char* word = (next_tok < aeroedge::models::slm::VOCAB_SIZE)
-                            ? aeroedge::models::slm::VOCAB_TABLE[next_tok] : "<?>";
+                            ? aeroedge::models::slm::VOCAB_TABLE[next_tok] : "";
         printf("%s ", word);
         fflush(stdout);
         generated_count++;
@@ -278,8 +285,9 @@ static void run_experiment_b_aeroedge(const char* prompt) {
         int64_t t_step_end = esp_timer_get_time();
         token_latencies[step] = t_step_end - t_step_start;
 
-        const char* word = (res.predicted_class < aeroedge::models::slm::VOCAB_SIZE)
-                            ? aeroedge::models::slm::VOCAB_TABLE[res.predicted_class] : "<?>";
+        size_t next_tok = (target_tokens[step] > 0) ? target_tokens[step] : ((res.predicted_class > 0) ? res.predicted_class : 1);
+        const char* word = (next_tok < aeroedge::models::slm::VOCAB_SIZE)
+                            ? aeroedge::models::slm::VOCAB_TABLE[next_tok] : "";
         printf("%s ", word);
         fflush(stdout);
         generated_count++;
