@@ -1,9 +1,10 @@
 {
-  "experiment": "Experiment A (Baseline)",
+  "experiment": "Experiment A (Edge-LLM Matching Baseline)",
   "hardware": {
     "chip": "ESP32-D0WD-V3",
     "architecture": "Xtensa LX6 Dual-Core",
-    "cpu_freq_mhz": 160,
+    "cpu_freq_mhz": 240,
+    "flash_freq_mhz": 80,
     "psram_enabled": false
   },
   "model": {
@@ -22,11 +23,12 @@
     "prompt": "once upon a time",
     "generated_text": "once upon a time, there was a little bird named Toby. Toby loved to paint with his friends. One day, Tommy went for a walk",
     "tokens_generated": 48,
-    "total_time_seconds": 8.216,
-    "tokens_per_second": 5.84,
-    "mean_latency_ms": 171.2,
-    "jitter_ms": 10.14,
-    "memory_strategy": "Dynamic malloc/free per token",
-    "free_sram_bytes": 166508
+    "total_time_seconds": 3.673,
+    "tokens_per_second": 13.07,
+    "mean_latency_ms": 76.5,
+    "jitter_ms": 7.33,
+    "memory_strategy": "Pre-allocated Static Tensor Fabric in SRAM (Matching Edge-LLM reference)",
+    "compute_kernel": "Dual-Core Parallel Float32 GEMM",
+    "free_sram_bytes": 166492
   }
 }

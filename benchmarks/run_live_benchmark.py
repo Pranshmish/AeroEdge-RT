@@ -52,9 +52,10 @@ def run_benchmark():
     # Read output until benchmark finishes or 40s timeout
     while time.time() - capture_start < 45.0:
         if ser.in_waiting:
-            data = ser.read(ser.in_waiting).decode('utf-8', errors='replace')
-            sys.stdout.write(data)
-            sys.stdout.flush()
+            raw_bytes = ser.read(ser.in_waiting)
+            data = raw_bytes.decode('utf-8', errors='replace')
+            sys.stdout.buffer.write(raw_bytes)
+            sys.stdout.buffer.flush()
             total_log += data
             if "Enter prompt:" in total_log and ("EXPERIMENT B" in total_log or "EXPERIMENT A" in total_log):
                 # Check if both reports completed

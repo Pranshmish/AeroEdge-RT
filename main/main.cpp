@@ -458,16 +458,21 @@ static inline void rmsnorm(float* o, const float* x, const float* weight, int si
     for (int i = 0; i < size; i++) o[i] = x[i] * ss * weight[i];
 }
 
-// Baseline Scalar Float32 Matrix-Vector Multiplication (Experiment A)
-static void matmul_scalar(float* xout, const float* x, const float* w, int n, int d) {
-    for (int i = 0; i < d; i++) {
-        float sum = 0.0f;
-        const float* row = w + i * n;
-        for (int j = 0; j < n; j++) {
-            sum += x[j] * row[j];
-        }
-        xout[i] = sum;
+// ----------------------------------------------------------------------------
+// Edge-LLM Standard Float32 Compute Kernel (Experiment A)
+// ----------------------------------------------------------------------------
+static inline float dot_product_f32(const float* a, const float* b, int n) {
+    float s0 = 0.0f, s1 = 0.0f, s2 = 0.0f, s3 = 0.0f;
+    int j = 0;
+    for (; j <= n - 4; j += 4) {
+        s0 += a[j] * b[j];
+        s1 += a[j + 1] * b[j + 1];
+        s2 += a[j + 2] * b[j + 2];
+        s3 += a[j + 3] * b[j + 3];
     }
+    float sum = (s0 + s1) + (s2 + s3);
+    for (; j < n; j++) sum += a[j] * b[j];
+    return sum;
 }
 
 // ----------------------------------------------------------------------------
@@ -507,9 +512,18 @@ static inline int32_t dot_product_int8(const int8_t* a, const int8_t* b, int n) 
     return total;
 }
 
-// Dual-Core Parallel Worker
+// Dual-Core Parallel Worker (Shared by Exp A and Exp B)
+typedef enum {
+    JOB_TYPE_INT8 = 0,
+    JOB_TYPE_FLOAT32 = 1
+} JobType;
+
 typedef struct {
+    JobType type;
     float* xout;
+    const float* x_f32;
+    const float* w_f32;
+    int cols;
     const int8_t* x_int8;
     float x_scale;
     const QuantizedMatrix* mat;
@@ -525,21 +539,61 @@ static void core0_worker_task(void* pvParameters) {
     (void)pvParameters;
     while (1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        const int8_t* x_int8 = g_core0_job.x_int8;
-        float x_scale = g_core0_job.x_scale;
-        const QuantizedMatrix* mat = g_core0_job.mat;
-        float* xout = g_core0_job.xout;
-        int cols = mat->cols;
+        if (g_core0_job.type == JOB_TYPE_INT8) {
+            const int8_t* x_int8 = g_core0_job.x_int8;
+            float x_scale = g_core0_job.x_scale;
+            const QuantizedMatrix* mat = g_core0_job.mat;
+            float* xout = g_core0_job.xout;
+            int cols = mat->cols;
 
-        for (int i = g_core0_job.start_row; i < g_core0_job.end_row; i++) {
-            const int8_t* w_row = mat->data + i * cols;
-            int32_t acc = dot_product_int8(x_int8, w_row, cols);
-            xout[i] = (float)acc * (x_scale * mat->scales[i]);
+            for (int i = g_core0_job.start_row; i < g_core0_job.end_row; i++) {
+                const int8_t* w_row = mat->data + i * cols;
+                int32_t acc = dot_product_int8(x_int8, w_row, cols);
+                xout[i] = (float)acc * (x_scale * mat->scales[i]);
+            }
+        } else {
+            // JOB_TYPE_FLOAT32: Edge-LLM Dual-Core Pipelined Baseline
+            const float* x = g_core0_job.x_f32;
+            const float* w = g_core0_job.w_f32;
+            float* xout = g_core0_job.xout;
+            int cols = g_core0_job.cols;
+
+            for (int i = g_core0_job.start_row; i < g_core0_job.end_row; i++) {
+                xout[i] = dot_product_f32(w + i * cols, x, cols);
+            }
         }
         xTaskNotifyGive(g_core1_caller_handle);
     }
 }
 
+// Edge-LLM Dual-Core Parallel Float32 GEMM (Experiment A Baseline)
+static void matmul_baseline(float* xout, const float* x, const float* w, int n, int d) {
+    if (g_core0_worker_handle != NULL && d >= 16) {
+        int half = d / 2;
+        g_core0_job.type = JOB_TYPE_FLOAT32;
+        g_core0_job.xout = xout;
+        g_core0_job.x_f32 = x;
+        g_core0_job.w_f32 = w;
+        g_core0_job.cols = n;
+        g_core0_job.start_row = 0;
+        g_core0_job.end_row = half;
+        g_core1_caller_handle = xTaskGetCurrentTaskHandle();
+
+        xTaskNotifyGive(g_core0_worker_handle);
+
+        for (int i = half; i < d; i++) {
+            xout[i] = dot_product_f32(w + i * n, x, n);
+        }
+
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    } else {
+        for (int i = 0; i < d; i++) {
+            xout[i] = dot_product_f32(w + i * n, x, n);
+        }
+    }
+}
+
+// AeroEdge-RT Dual-Core Parallel INT8 GEMM (Experiment B Optimized)
 static void matmul_int8_parallel(float* xout, const float* x, const QuantizedMatrix* mat, int8_t* scratch_int8) {
     int rows = mat->rows;
     int cols = mat->cols;
@@ -551,6 +605,7 @@ static void matmul_int8_parallel(float* xout, const float* x, const QuantizedMat
     // 2. Dual-Core parallel integer GEMM
     if (g_core0_worker_handle != NULL && rows >= 16) {
         int half = rows / 2;
+        g_core0_job.type = JOB_TYPE_INT8;
         g_core0_job.xout = xout;
         g_core0_job.x_int8 = scratch_int8;
         g_core0_job.x_scale = x_scale;
@@ -597,9 +652,9 @@ static float* forward_pass_baseline(RunState* state, KVCache* kv, int token, int
     for (int l = 0; l < n_layers; l++) {
         rmsnorm(state->xb, state->x, g_weights.rms_att_weight + l * dim, dim);
 
-        matmul_scalar(state->q, state->xb, g_weights.wq + l * dim * dim, dim, dim);
-        matmul_scalar(state->k, state->xb, g_weights.wk + l * kv_dim * dim, dim, kv_dim);
-        matmul_scalar(state->v, state->xb, g_weights.wv + l * kv_dim * dim, dim, kv_dim);
+        matmul_baseline(state->q, state->xb, g_weights.wq + l * dim * dim, dim, dim);
+        matmul_baseline(state->k, state->xb, g_weights.wk + l * kv_dim * dim, dim, kv_dim);
+        matmul_baseline(state->v, state->xb, g_weights.wv + l * kv_dim * dim, dim, kv_dim);
 
         for (int i = 0; i < dim; i += 2) {
             int head_dim = i % head_size;
@@ -655,24 +710,24 @@ static float* forward_pass_baseline(RunState* state, KVCache* kv, int token, int
             }
         }
 
-        matmul_scalar(state->xb, state->xb2, g_weights.wo + l * dim * dim, dim, dim);
+        matmul_baseline(state->xb, state->xb2, g_weights.wo + l * dim * dim, dim, dim);
         for (int i = 0; i < dim; i++) state->x[i] += state->xb[i];
 
         rmsnorm(state->xb, state->x, g_weights.rms_ffn_weight + l * dim, dim);
-        matmul_scalar(state->hb, state->xb, g_weights.w1 + l * hidden_dim * dim, dim, hidden_dim);
-        matmul_scalar(state->hb2, state->xb, g_weights.w3 + l * hidden_dim * dim, dim, hidden_dim);
+        matmul_baseline(state->hb, state->xb, g_weights.w1 + l * hidden_dim * dim, dim, hidden_dim);
+        matmul_baseline(state->hb2, state->xb, g_weights.w3 + l * hidden_dim * dim, dim, hidden_dim);
 
         for (int i = 0; i < hidden_dim; i++) {
             float val = state->hb[i];
             state->hb[i] = (val / (1.0f + expf(-val))) * state->hb2[i];
         }
 
-        matmul_scalar(state->xb, state->hb, g_weights.w2 + l * dim * hidden_dim, hidden_dim, dim);
+        matmul_baseline(state->xb, state->hb, g_weights.w2 + l * dim * hidden_dim, hidden_dim, dim);
         for (int i = 0; i < dim; i++) state->x[i] += state->xb[i];
     }
 
     rmsnorm(state->x, state->x, g_weights.rms_final_weight, dim);
-    matmul_scalar(state->logits, state->x, g_weights.wcls, dim, vocab_size);
+    matmul_baseline(state->logits, state->x, g_weights.wcls, dim, vocab_size);
     return state->logits;
 }
 
@@ -779,52 +834,27 @@ static float* forward_pass_aeroedge_int8(RunState* state, KVCache* kv, int token
 }
 
 // ----------------------------------------------------------------------------
-// RunState Dynamic Allocators for Experiment A
-// ----------------------------------------------------------------------------
-static bool alloc_dynamic_state(RunState* s, int dim, int hidden_dim, int vocab_size) {
-    s->x = (float*)malloc(dim * sizeof(float));
-    s->xb = (float*)malloc(dim * sizeof(float));
-    s->xb2 = (float*)malloc(dim * sizeof(float));
-    s->hb = (float*)malloc(hidden_dim * sizeof(float));
-    s->hb2 = (float*)malloc(hidden_dim * sizeof(float));
-    s->q = (float*)malloc(dim * sizeof(float));
-    s->k = (float*)malloc(dim * sizeof(float));
-    s->v = (float*)malloc(dim * sizeof(float));
-    s->att = (float*)malloc(8 * MAX_SEQ_LEN * sizeof(float));
-    s->logits = (float*)malloc(vocab_size * sizeof(float));
-    s->x_int8 = NULL;
-
-    return (s->x && s->xb && s->xb2 && s->hb && s->hb2 && s->q && s->k && s->v && s->att && s->logits);
-}
-
-static void free_dynamic_state(RunState* s) {
-    if (s->x) free(s->x);
-    if (s->xb) free(s->xb);
-    if (s->xb2) free(s->xb2);
-    if (s->hb) free(s->hb);
-    if (s->hb2) free(s->hb2);
-    if (s->q) free(s->q);
-    if (s->k) free(s->k);
-    if (s->v) free(s->v);
-    if (s->att) free(s->att);
-    if (s->logits) free(s->logits);
-    memset(s, 0, sizeof(RunState));
-}
-
-// ----------------------------------------------------------------------------
-// EXPERIMENT A: Baseline
+// EXPERIMENT A: Baseline (Edge-LLM Matching Architecture)
 // ----------------------------------------------------------------------------
 static void run_experiment_a(const char* prompt) {
     printf("\n======================================================================\n");
-    printf("     RUNNING EXPERIMENT A: BASELINE (FreeRTOS + Dynamic Heap Malloc)  \n");
+    printf("     RUNNING EXPERIMENT A: Edge-LLM BASELINE (240MHz Dual-Core FPU)   \n");
     printf("======================================================================\n");
     printf("[Baseline] Model Architecture: TinyLlama 260K (Zero-Copy Flash ROM)\n");
-    printf("[Baseline] Memory Strategy:    Heap malloc() / free() per token\n");
-    printf("[Baseline] Compute Kernel:     Standard Scalar Xtensa FPU\n");
+    printf("[Baseline] Clock Frequency:    240 MHz (Max Rated PLL)\n");
+    printf("[Baseline] Compute Engine:     Dual-Core Pipelined Float32 GEMM (Edge-LLM standard)\n");
+    printf("[Baseline] Memory Strategy:    Pre-allocated Static Tensor Fabric in SRAM\n");
     printf("[Baseline] Input Prompt:       \"%s\"\n", prompt);
     printf("----------------------------------------------------------------------\n");
     printf("Generating tokens: > ");
     fflush(stdout);
+
+    // Reset KV cache for clean inference
+    int dim = g_config.dim;
+    int kv_dim = (dim * g_config.n_kv_heads) / g_config.n_heads;
+    size_t kv_size = (size_t)g_config.n_layers * MAX_SEQ_LEN * kv_dim * sizeof(float);
+    memset(g_kv_cache.key_cache, 0, kv_size);
+    memset(g_kv_cache.value_cache, 0, kv_size);
 
     int prompt_tokens[MAX_PROMPT_LEN];
     int num_prompt_tokens = 0;
@@ -843,20 +873,13 @@ static void run_experiment_a(const char* prompt) {
     for (int pos = 0; pos < MAX_GEN_STEPS && pos < MAX_SEQ_LEN - 1; pos++) {
         int64_t t0 = esp_timer_get_time();
 
-        RunState dyn_state;
-        if (!alloc_dynamic_state(&dyn_state, g_config.dim, g_config.hidden_dim, g_config.vocab_size)) {
-            break;
-        }
-
-        float* logits = forward_pass_baseline(&dyn_state, &g_kv_cache, token, pos);
+        float* logits = forward_pass_baseline(&g_static_state, &g_kv_cache, token, pos);
 
         if (pos < num_prompt_tokens - 1) {
             next_token = prompt_tokens[pos + 1];
         } else {
             next_token = sample_logits(&g_sampler, logits);
         }
-
-        free_dynamic_state(&dyn_state);
 
         int64_t t1 = esp_timer_get_time();
         latencies[generated_count++] = t1 - t0;
@@ -867,8 +890,6 @@ static void run_experiment_a(const char* prompt) {
         printf("%s", piece);
         fflush(stdout);
         token = next_token;
-
-        vTaskDelay(1);
     }
 
     printf("\n----------------------------------------------------------------------\n");
@@ -901,9 +922,10 @@ static void run_experiment_a(const char* prompt) {
 // ----------------------------------------------------------------------------
 static void run_experiment_b(const char* prompt) {
     printf("\n======================================================================\n");
-    printf("     RUNNING EXPERIMENT B: AeroEdge-RT (INT8 + Fast SRAM + Lock)      \n");
+    printf("     RUNNING EXPERIMENT B: AeroEdge-RT (240MHz INT8 + Fast SRAM)      \n");
     printf("======================================================================\n");
-    printf("[AeroEdge-RT] Architecture:     TinyLlama 260K (Hot Weights in SRAM)\n");
+    printf("[AeroEdge-RT] Architecture:     TinyLlama 260K (Layer 0 Hot Cache in SRAM)\n");
+    printf("[AeroEdge-RT] Clock Frequency:  240 MHz (Max Rated PLL)\n");
     printf("[AeroEdge-RT] Compute Kernel:   INT8 4-Way Parallel Integer GEMM\n");
     printf("[AeroEdge-RT] Memory Strategy:  Zero-Allocation Fast Internal SRAM Pool\n");
     printf("[AeroEdge-RT] Preemption Policy:Core 1 Isolated Preemption Lock (Zero Jitter)\n");
@@ -911,6 +933,13 @@ static void run_experiment_b(const char* prompt) {
     printf("----------------------------------------------------------------------\n");
     printf("Generating tokens: > ");
     fflush(stdout);
+
+    // Reset KV cache for clean inference
+    int dim = g_config.dim;
+    int kv_dim = (dim * g_config.n_kv_heads) / g_config.n_heads;
+    size_t kv_size = (size_t)g_config.n_layers * MAX_SEQ_LEN * kv_dim * sizeof(float);
+    memset(g_kv_cache.key_cache, 0, kv_size);
+    memset(g_kv_cache.value_cache, 0, kv_size);
 
     int prompt_tokens[MAX_PROMPT_LEN];
     int num_prompt_tokens = 0;
@@ -951,9 +980,6 @@ static void run_experiment_b(const char* prompt) {
         printf("%s", piece);
         fflush(stdout);
         token = next_token;
-
-        // Yield to IDLE1 task cooperatively
-        vTaskDelay(1);
     }
 
     // Restore priority

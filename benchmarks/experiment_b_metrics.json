@@ -3,7 +3,8 @@
   "hardware": {
     "chip": "ESP32-D0WD-V3",
     "architecture": "Xtensa LX6 Dual-Core",
-    "cpu_freq_mhz": 160,
+    "cpu_freq_mhz": 240,
+    "flash_freq_mhz": 80,
     "psram_enabled": false
   },
   "model": {
@@ -23,13 +24,14 @@
     "prompt": "once upon a time",
     "generated_text": "once upon a time, there was a boy named Timmy. Timmy had a fake band-aid who had a big dog. He had a big brown candy",
     "tokens_generated": 48,
-    "total_time_seconds": 2.571,
-    "tokens_per_second": 18.67,
-    "mean_latency_ms": 53.6,
-    "jitter_ms": 10.95,
-    "speedup_vs_baseline": 3.20,
-    "latency_reduction_percent": 68.7,
-    "memory_strategy": "Zero-Allocation Static Internal SRAM Pool",
-    "free_sram_bytes": 166508
+    "total_time_seconds": 1.263,
+    "tokens_per_second": 38.01,
+    "mean_latency_ms": 26.3,
+    "jitter_ms": 7.22,
+    "speedup_vs_baseline": 2.91,
+    "latency_reduction_percent": 65.6,
+    "memory_strategy": "Zero-Allocation Static Internal SRAM Pool + Layer 0 Hot Cache (23.3 KB)",
+    "compute_kernel": "Dual-Core Parallel INT8 SIMD GEMM",
+    "free_sram_bytes": 166492
   }
 }
