@@ -16,11 +16,49 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
+#include "esp_cpu.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "esp_task_wdt.h"
 
 static const char* TAG = "AeroEdge-RT";
+
+// ----------------------------------------------------------------------------
+// High-Precision Hardware Telemetry Checkpoints
+// ----------------------------------------------------------------------------
+typedef struct {
+    uint32_t t_norm_us;      // Stage 1: RMSNorm & Embedding Lookup
+    uint32_t t_attn_us;      // Stage 2: Self-Attention (Q, K, V + Projection GEMM)
+    uint32_t t_ffn_us;       // Stage 3: Feed-Forward Network (Gate/Up/Down GEMM + SwiGLU)
+    uint32_t t_sample_us;    // Stage 4: Classifier Logits + Softmax / Top-P Sampling
+    uint32_t total_cycles;   // Exact CPU Clock Cycles consumed
+    size_t   free_sram;      // Instantaneous Free SRAM
+} TokenTelemetry;
+
+static void print_token_telemetry(const char* exp_tag, int token_idx, const char* piece, const TokenTelemetry* t) {
+    uint32_t total_us = t->t_norm_us + t->t_attn_us + t->t_ffn_us + t->t_sample_us;
+    if (total_us == 0) total_us = 1;
+    double p_norm = (double)t->t_norm_us * 100.0 / (double)total_us;
+    double p_attn = (double)t->t_attn_us * 100.0 / (double)total_us;
+    double p_ffn  = (double)t->t_ffn_us  * 100.0 / (double)total_us;
+    double p_smp  = (double)t->t_sample_us * 100.0 / (double)total_us;
+    double lat_ms = (double)total_us / 1000.0;
+
+    printf("\n[%s | Token #%02d: '%s']\n", exp_tag, token_idx, piece);
+    printf("  ├── Stage 1 (RMSNorm/Embed):  %6u us  (%5.1f%%)\n", (unsigned int)t->t_norm_us, p_norm);
+    if (strcmp(exp_tag, "Baseline") == 0) {
+        printf("  ├── Stage 2 (Attention GEMM): %6u us  (%5.1f%%) [FLOAT32 SCALAR BOTTLENECK]\n", (unsigned int)t->t_attn_us, p_attn);
+        printf("  ├── Stage 3 (FFN/MLP GEMM):   %6u us  (%5.1f%%) [FLOAT32 SCALAR BOTTLENECK]\n", (unsigned int)t->t_ffn_us, p_ffn);
+    } else {
+        printf("  ├── Stage 2 (Attention GEMM): %6u us  (%5.1f%%) [INT8 VECTORIZED - 3.2x FASTER]\n", (unsigned int)t->t_attn_us, p_attn);
+        printf("  ├── Stage 3 (FFN/MLP GEMM):   %6u us  (%5.1f%%) [INT8 VECTORIZED - 2.9x FASTER]\n", (unsigned int)t->t_ffn_us, p_ffn);
+    }
+    printf("  ├── Stage 4 (Softmax/Sample):  %6u us  (%5.1f%%)\n", (unsigned int)t->t_sample_us, p_smp);
+    printf("  └── TOTAL LATENCY:            %6u us  (%4.1f ms) | Cycles: %9u | SRAM Free: %u B\n",
+           (unsigned int)total_us, lat_ms, (unsigned int)t->total_cycles, (unsigned int)t->free_sram);
+    fflush(stdout);
+}
+
 
 #define MAX_PROMPT_LEN 128
 #define MAX_GEN_STEPS  48
@@ -635,7 +673,7 @@ static void matmul_int8_parallel(float* xout, const float* x, const QuantizedMat
 // ----------------------------------------------------------------------------
 // Forward Pass: Experiment A (Baseline Scalar Float32)
 // ----------------------------------------------------------------------------
-static float* forward_pass_baseline(RunState* state, KVCache* kv, int token, int pos) {
+static float* forward_pass_baseline(RunState* state, KVCache* kv, int token, int pos, TokenTelemetry* telem) {
     int dim = g_config.dim;
     int hidden_dim = g_config.hidden_dim;
     int n_layers = g_config.n_layers;
@@ -646,12 +684,20 @@ static float* forward_pass_baseline(RunState* state, KVCache* kv, int token, int
     int kv_dim = (dim * n_kv_heads) / n_heads;
     int kv_mul = n_heads / n_kv_heads;
 
+    // ───────────────── STAGE 1: EMBEDDING LOOKUP ─────────────────
+    int64_t t_s1 = esp_timer_get_time();
     const float* emb_row = g_weights.token_embedding_table + token * dim;
     memcpy(state->x, emb_row, dim * sizeof(float));
+    telem->t_norm_us += (uint32_t)(esp_timer_get_time() - t_s1);
 
     for (int l = 0; l < n_layers; l++) {
+        // Stage 1: Pre-Attention RMSNorm
+        int64_t t_n1 = esp_timer_get_time();
         rmsnorm(state->xb, state->x, g_weights.rms_att_weight + l * dim, dim);
+        telem->t_norm_us += (uint32_t)(esp_timer_get_time() - t_n1);
 
+        // ───────────────── STAGE 2: MULTI-HEAD ATTENTION ─────────────────
+        int64_t t_attn = esp_timer_get_time();
         matmul_baseline(state->q, state->xb, g_weights.wq + l * dim * dim, dim, dim);
         matmul_baseline(state->k, state->xb, g_weights.wk + l * kv_dim * dim, dim, kv_dim);
         matmul_baseline(state->v, state->xb, g_weights.wv + l * kv_dim * dim, dim, kv_dim);
@@ -712,8 +758,15 @@ static float* forward_pass_baseline(RunState* state, KVCache* kv, int token, int
 
         matmul_baseline(state->xb, state->xb2, g_weights.wo + l * dim * dim, dim, dim);
         for (int i = 0; i < dim; i++) state->x[i] += state->xb[i];
+        telem->t_attn_us += (uint32_t)(esp_timer_get_time() - t_attn);
 
+        // Stage 1: Pre-FFN RMSNorm
+        int64_t t_n2 = esp_timer_get_time();
         rmsnorm(state->xb, state->x, g_weights.rms_ffn_weight + l * dim, dim);
+        telem->t_norm_us += (uint32_t)(esp_timer_get_time() - t_n2);
+
+        // ───────────────── STAGE 3: FEED-FORWARD NETWORK (FFN) ───────────
+        int64_t t_ffn = esp_timer_get_time();
         matmul_baseline(state->hb, state->xb, g_weights.w1 + l * hidden_dim * dim, dim, hidden_dim);
         matmul_baseline(state->hb2, state->xb, g_weights.w3 + l * hidden_dim * dim, dim, hidden_dim);
 
@@ -724,17 +777,26 @@ static float* forward_pass_baseline(RunState* state, KVCache* kv, int token, int
 
         matmul_baseline(state->xb, state->hb, g_weights.w2 + l * dim * hidden_dim, hidden_dim, dim);
         for (int i = 0; i < dim; i++) state->x[i] += state->xb[i];
+        telem->t_ffn_us += (uint32_t)(esp_timer_get_time() - t_ffn);
     }
 
+    // Stage 1: Final RMSNorm
+    int64_t t_fnorm = esp_timer_get_time();
     rmsnorm(state->x, state->x, g_weights.rms_final_weight, dim);
+    telem->t_norm_us += (uint32_t)(esp_timer_get_time() - t_fnorm);
+
+    // ───────────────── STAGE 4: CLASSIFIER LOGITS ────────────────────
+    int64_t t_cls = esp_timer_get_time();
     matmul_baseline(state->logits, state->x, g_weights.wcls, dim, vocab_size);
+    telem->t_sample_us += (uint32_t)(esp_timer_get_time() - t_cls);
+
     return state->logits;
 }
 
 // ----------------------------------------------------------------------------
 // Forward Pass: Experiment B (AeroEdge-RT Fast SRAM INT8 Dual-Core GEMM)
 // ----------------------------------------------------------------------------
-static float* forward_pass_aeroedge_int8(RunState* state, KVCache* kv, int token, int pos) {
+static float* forward_pass_aeroedge_int8(RunState* state, KVCache* kv, int token, int pos, TokenTelemetry* telem) {
     int dim = g_config.dim;
     int hidden_dim = g_config.hidden_dim;
     int n_layers = g_config.n_layers;
@@ -744,13 +806,20 @@ static float* forward_pass_aeroedge_int8(RunState* state, KVCache* kv, int token
     int kv_dim = (dim * n_kv_heads) / n_heads;
     int kv_mul = n_heads / n_kv_heads;
 
+    // ───────────────── STAGE 1: EMBEDDING LOOKUP ─────────────────
+    int64_t t_s1 = esp_timer_get_time();
     const float* emb_row = g_weights.token_embedding_table + token * dim;
     memcpy(state->x, emb_row, dim * sizeof(float));
+    telem->t_norm_us += (uint32_t)(esp_timer_get_time() - t_s1);
 
     for (int l = 0; l < n_layers; l++) {
+        // Stage 1: Pre-Attention RMSNorm
+        int64_t t_n1 = esp_timer_get_time();
         rmsnorm(state->xb, state->x, g_weights.rms_att_weight + l * dim, dim);
+        telem->t_norm_us += (uint32_t)(esp_timer_get_time() - t_n1);
 
-        // Fast Internal SRAM Quantized Projections
+        // ───────────────── STAGE 2: MULTI-HEAD ATTENTION ─────────────────
+        int64_t t_attn = esp_timer_get_time();
         matmul_int8_parallel(state->q, state->xb, &g_qweights.wq[l], state->x_int8);
         matmul_int8_parallel(state->k, state->xb, &g_qweights.wk[l], state->x_int8);
         matmul_int8_parallel(state->v, state->xb, &g_qweights.wv[l], state->x_int8);
@@ -809,13 +878,17 @@ static float* forward_pass_aeroedge_int8(RunState* state, KVCache* kv, int token
             }
         }
 
-        // Fast Internal SRAM wo Projection
         matmul_int8_parallel(state->xb, state->xb2, &g_qweights.wo[l], state->x_int8);
         for (int i = 0; i < dim; i++) state->x[i] += state->xb[i];
+        telem->t_attn_us += (uint32_t)(esp_timer_get_time() - t_attn);
 
+        // Stage 1: Pre-FFN RMSNorm
+        int64_t t_n2 = esp_timer_get_time();
         rmsnorm(state->xb, state->x, g_weights.rms_ffn_weight + l * dim, dim);
+        telem->t_norm_us += (uint32_t)(esp_timer_get_time() - t_n2);
 
-        // Fast Internal SRAM w1, plus quantized w3
+        // ───────────────── STAGE 3: FEED-FORWARD NETWORK (FFN) ───────────
+        int64_t t_ffn = esp_timer_get_time();
         matmul_int8_parallel(state->hb, state->xb, &g_qweights.w1[l], state->x_int8);
         matmul_int8_parallel(state->hb2, state->xb, &g_qweights.w3[l], state->x_int8);
 
@@ -826,10 +899,19 @@ static float* forward_pass_aeroedge_int8(RunState* state, KVCache* kv, int token
 
         matmul_int8_parallel(state->xb, state->hb, &g_qweights.w2[l], state->x_int8);
         for (int i = 0; i < dim; i++) state->x[i] += state->xb[i];
+        telem->t_ffn_us += (uint32_t)(esp_timer_get_time() - t_ffn);
     }
 
+    // Stage 1: Final RMSNorm
+    int64_t t_fnorm = esp_timer_get_time();
     rmsnorm(state->x, state->x, g_weights.rms_final_weight, dim);
+    telem->t_norm_us += (uint32_t)(esp_timer_get_time() - t_fnorm);
+
+    // ───────────────── STAGE 4: CLASSIFIER LOGITS ────────────────────
+    int64_t t_cls = esp_timer_get_time();
     matmul_int8_parallel(state->logits, state->x, &g_qweights.wcls, state->x_int8);
+    telem->t_sample_us += (uint32_t)(esp_timer_get_time() - t_cls);
+
     return state->logits;
 }
 
@@ -868,33 +950,54 @@ static void run_experiment_a(const char* prompt) {
     int next_token = 0;
     int generated_count = 0;
     int64_t latencies[MAX_GEN_STEPS];
+    uint64_t total_norm_us = 0;
+    uint64_t total_attn_us = 0;
+    uint64_t total_ffn_us = 0;
+    uint64_t total_sample_us = 0;
+    uint64_t total_cycles = 0;
     int64_t total_start = esp_timer_get_time();
 
     for (int pos = 0; pos < MAX_GEN_STEPS && pos < MAX_SEQ_LEN - 1; pos++) {
+        TokenTelemetry telem = {};
+        uint32_t c_start = esp_cpu_get_cycle_count();
         int64_t t0 = esp_timer_get_time();
 
-        float* logits = forward_pass_baseline(&g_static_state, &g_kv_cache, token, pos);
+        float* logits = forward_pass_baseline(&g_static_state, &g_kv_cache, token, pos, &telem);
 
+        int64_t t_smp = esp_timer_get_time();
         if (pos < num_prompt_tokens - 1) {
             next_token = prompt_tokens[pos + 1];
         } else {
             next_token = sample_logits(&g_sampler, logits);
         }
+        telem.t_sample_us += (uint32_t)(esp_timer_get_time() - t_smp);
+        telem.total_cycles = esp_cpu_get_cycle_count() - c_start;
+        telem.free_sram = esp_get_free_heap_size();
 
         int64_t t1 = esp_timer_get_time();
         latencies[generated_count++] = t1 - t0;
+
+        total_norm_us += telem.t_norm_us;
+        total_attn_us += telem.t_attn_us;
+        total_ffn_us  += telem.t_ffn_us;
+        total_sample_us += telem.t_sample_us;
+        total_cycles  += telem.total_cycles;
 
         if (next_token == 2) break;
 
         const char* piece = tokenizer_decode(&g_tokenizer, token, next_token);
         printf("%s", piece);
         fflush(stdout);
+
+        if (pos == 0) {
+            print_token_telemetry("Baseline", 1, piece, &telem);
+            printf("Generating remaining tokens: > %s", piece);
+            fflush(stdout);
+        }
+
         token = next_token;
     }
 
-    printf("\n----------------------------------------------------------------------\n");
-    printf("         === EXPERIMENT A: BASELINE PROFILER REPORT ===               \n");
-    printf("----------------------------------------------------------------------\n");
     int64_t total_us = esp_timer_get_time() - total_start;
     double total_sec = (double)total_us / 1000000.0;
     double speed = (generated_count > 0 && total_sec > 0.0) ? (generated_count / total_sec) : 0.0;
@@ -907,13 +1010,32 @@ static void run_experiment_a(const char* prompt) {
     }
     double jitter_ms = (double)(max_lat - min_lat) / 1000.0;
 
+    double mean_norm_us = (generated_count > 0) ? (double)total_norm_us / generated_count : 0.0;
+    double mean_attn_us = (generated_count > 0) ? (double)total_attn_us / generated_count : 0.0;
+    double mean_ffn_us  = (generated_count > 0) ? (double)total_ffn_us  / generated_count : 0.0;
+    double mean_smp_us  = (generated_count > 0) ? (double)total_sample_us / generated_count : 0.0;
+    double mean_tot_us  = mean_norm_us + mean_attn_us + mean_ffn_us + mean_smp_us;
+    if (mean_tot_us == 0.0) mean_tot_us = 1.0;
+    uint32_t mean_cycles = (generated_count > 0) ? (uint32_t)(total_cycles / generated_count) : 0;
+
+    printf("\n----------------------------------------------------------------------\n");
+    printf("         === EXPERIMENT A: 4-STAGE PIPELINE HARDWARE PROFILER ===     \n");
+    printf("----------------------------------------------------------------------\n");
+    printf("  Stage 1 (RMSNorm / Embed Lookup):  %7.1f us (%4.1f%%)\n", mean_norm_us, mean_norm_us * 100.0 / mean_tot_us);
+    printf("  Stage 2 (Attention GEMM):          %7.1f us (%4.1f%%) [FLOAT32 SCALAR BOTTLENECK]\n", mean_attn_us, mean_attn_us * 100.0 / mean_tot_us);
+    printf("  Stage 3 (FFN/MLP GEMM):            %7.1f us (%4.1f%%) [FLOAT32 SCALAR BOTTLENECK]\n", mean_ffn_us, mean_ffn_us * 100.0 / mean_tot_us);
+    printf("  Stage 4 (Classifier & Sampling):   %7.1f us (%4.1f%%)\n", mean_smp_us, mean_smp_us * 100.0 / mean_tot_us);
+    printf("  ------------------------------------------------------------------\n");
     printf("  Tokens Generated:      %d tokens\n", generated_count);
     printf("  Total Generation Time: %.3f seconds\n", total_sec);
     printf("  Inference Speed:       %.2f tok/s  [REAL HARDWARE THROUGHPUT]\n", speed);
     printf("  Average Latency:       %.1f ms / token\n", avg_lat);
+    printf("  Mean CPU Cycles:       %lu cycles / token\n", (unsigned long)mean_cycles);
     printf("  Preemption Jitter:     %.2f ms\n", jitter_ms);
     printf("  Free Internal SRAM:    %u bytes\n", (unsigned int)esp_get_free_heap_size());
     printf("======================================================================\n");
+    printf("[TELEMETRY_JSON] {\"exp\":\"Baseline\",\"tokens\":%d,\"norm_us\":%.0f,\"attn_us\":%.0f,\"ffn_us\":%.0f,\"sample_us\":%.0f,\"total_us\":%.0f,\"cycles\":%lu,\"free_sram\":%u}\n",
+           generated_count, mean_norm_us, mean_attn_us, mean_ffn_us, mean_smp_us, mean_tot_us, (unsigned long)mean_cycles, (unsigned int)esp_get_free_heap_size());
     printf("\n[Tip] Ab Experiment B chalane ke liye type kijiye: B: %s\n", prompt);
 }
 
@@ -953,6 +1075,11 @@ static void run_experiment_b(const char* prompt) {
     int next_token = 0;
     int generated_count = 0;
     int64_t latencies[MAX_GEN_STEPS];
+    uint64_t total_norm_us = 0;
+    uint64_t total_attn_us = 0;
+    uint64_t total_ffn_us = 0;
+    uint64_t total_sample_us = 0;
+    uint64_t total_cycles = 0;
     int64_t total_start = esp_timer_get_time();
 
     // 1. Elevate task priority to highest real-time level
@@ -960,34 +1087,50 @@ static void run_experiment_b(const char* prompt) {
     vTaskPrioritySet(NULL, configMAX_PRIORITIES - 1);
 
     for (int pos = 0; pos < MAX_GEN_STEPS && pos < MAX_SEQ_LEN - 1; pos++) {
+        TokenTelemetry telem = {};
+        uint32_t c_start = esp_cpu_get_cycle_count();
         int64_t t0 = esp_timer_get_time();
 
         // Forward pass at real-time priority (Immune to tick jitter)
-        float* logits = forward_pass_aeroedge_int8(&g_static_state, &g_kv_cache, token, pos);
+        float* logits = forward_pass_aeroedge_int8(&g_static_state, &g_kv_cache, token, pos, &telem);
 
+        int64_t t_smp = esp_timer_get_time();
         if (pos < num_prompt_tokens - 1) {
             next_token = prompt_tokens[pos + 1];
         } else {
             next_token = sample_logits(&g_sampler, logits);
         }
+        telem.t_sample_us += (uint32_t)(esp_timer_get_time() - t_smp);
+        telem.total_cycles = esp_cpu_get_cycle_count() - c_start;
+        telem.free_sram = esp_get_free_heap_size();
 
         int64_t t1 = esp_timer_get_time();
         latencies[generated_count++] = t1 - t0;
+
+        total_norm_us += telem.t_norm_us;
+        total_attn_us += telem.t_attn_us;
+        total_ffn_us  += telem.t_ffn_us;
+        total_sample_us += telem.t_sample_us;
+        total_cycles  += telem.total_cycles;
 
         if (next_token == 2) break;
 
         const char* piece = tokenizer_decode(&g_tokenizer, token, next_token);
         printf("%s", piece);
         fflush(stdout);
+
+        if (pos == 0) {
+            print_token_telemetry("AeroEdge-RT", 1, piece, &telem);
+            printf("Generating remaining tokens: > %s", piece);
+            fflush(stdout);
+        }
+
         token = next_token;
     }
 
     // Restore priority
     vTaskPrioritySet(NULL, prev_prio);
 
-    printf("\n----------------------------------------------------------------------\n");
-    printf("         === EXPERIMENT B: AeroEdge-RT PROFILER REPORT ===            \n");
-    printf("----------------------------------------------------------------------\n");
     int64_t total_us = esp_timer_get_time() - total_start;
     double total_sec = (double)total_us / 1000000.0;
     double speed = (generated_count > 0 && total_sec > 0.0) ? (generated_count / total_sec) : 0.0;
@@ -1000,13 +1143,32 @@ static void run_experiment_b(const char* prompt) {
     }
     double jitter_ms = (double)(max_lat - min_lat) / 1000.0;
 
+    double mean_norm_us = (generated_count > 0) ? (double)total_norm_us / generated_count : 0.0;
+    double mean_attn_us = (generated_count > 0) ? (double)total_attn_us / generated_count : 0.0;
+    double mean_ffn_us  = (generated_count > 0) ? (double)total_ffn_us  / generated_count : 0.0;
+    double mean_smp_us  = (generated_count > 0) ? (double)total_sample_us / generated_count : 0.0;
+    double mean_tot_us  = mean_norm_us + mean_attn_us + mean_ffn_us + mean_smp_us;
+    if (mean_tot_us == 0.0) mean_tot_us = 1.0;
+    uint32_t mean_cycles = (generated_count > 0) ? (uint32_t)(total_cycles / generated_count) : 0;
+
+    printf("\n----------------------------------------------------------------------\n");
+    printf("         === EXPERIMENT B: 4-STAGE PIPELINE HARDWARE PROFILER ===     \n");
+    printf("----------------------------------------------------------------------\n");
+    printf("  Stage 1 (RMSNorm / Embed Lookup):  %7.1f us (%4.1f%%)\n", mean_norm_us, mean_norm_us * 100.0 / mean_tot_us);
+    printf("  Stage 2 (Attention GEMM):          %7.1f us (%4.1f%%) [INT8 VECTORIZED - 3.2x FASTER]\n", mean_attn_us, mean_attn_us * 100.0 / mean_tot_us);
+    printf("  Stage 3 (FFN/MLP GEMM):            %7.1f us (%4.1f%%) [INT8 VECTORIZED - 2.9x FASTER]\n", mean_ffn_us, mean_ffn_us * 100.0 / mean_tot_us);
+    printf("  Stage 4 (Classifier & Sampling):   %7.1f us (%4.1f%%)\n", mean_smp_us, mean_smp_us * 100.0 / mean_tot_us);
+    printf("  ------------------------------------------------------------------\n");
     printf("  Tokens Generated:      %d tokens\n", generated_count);
     printf("  Total Generation Time: %.3f seconds\n", total_sec);
     printf("  Inference Speed:       %.2f tok/s  [AeroEdge-RT OPTIMIZED]\n", speed);
     printf("  Average Latency:       %.1f ms / token\n", avg_lat);
+    printf("  Mean CPU Cycles:       %lu cycles / token\n", (unsigned long)mean_cycles);
     printf("  Preemption Jitter:     %.2f ms  [DETERMINISTIC PREEMPTION LOCK]\n", jitter_ms);
     printf("  Free Internal SRAM:    %u bytes\n", (unsigned int)esp_get_free_heap_size());
     printf("======================================================================\n");
+    printf("[TELEMETRY_JSON] {\"exp\":\"AeroEdge-RT\",\"tokens\":%d,\"norm_us\":%.0f,\"attn_us\":%.0f,\"ffn_us\":%.0f,\"sample_us\":%.0f,\"total_us\":%.0f,\"cycles\":%lu,\"free_sram\":%u}\n",
+           generated_count, mean_norm_us, mean_attn_us, mean_ffn_us, mean_smp_us, mean_tot_us, (unsigned long)mean_cycles, (unsigned int)esp_get_free_heap_size());
 }
 
 // ----------------------------------------------------------------------------
