@@ -1,0 +1,31 @@
+{
+  "experiment": "Experiment A (Baseline)",
+  "hardware": {
+    "chip": "ESP32-D0WD-V3",
+    "architecture": "Xtensa LX6 Dual-Core",
+    "cpu_freq_mhz": 160,
+    "psram_enabled": false
+  },
+  "model": {
+    "name": "TinyLlama-260K",
+    "dim": 64,
+    "hidden_dim": 172,
+    "n_layers": 5,
+    "n_heads": 8,
+    "n_kv_heads": 4,
+    "vocab_size": 512,
+    "total_params": 264128,
+    "weights_bytes": 1056540,
+    "storage_mode": "Zero-Copy Flash XIP (DROM)"
+  },
+  "benchmark_results": {
+    "prompt": "once upon a time",
+    "tokens_generated": 48,
+    "total_time_seconds": 9.150,
+    "tokens_per_second": 5.25,
+    "mean_latency_ms": 190.6,
+    "jitter_ms": 12.39,
+    "memory_strategy": "Dynamic malloc/free per token",
+    "free_sram_bytes": 186540
+  }
+}

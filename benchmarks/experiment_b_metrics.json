@@ -1,0 +1,32 @@
+{
+  "experiment": "Experiment B (AeroEdge-RT Engine)",
+  "hardware": {
+    "chip": "ESP32-D0WD-V3",
+    "architecture": "Xtensa LX6 Dual-Core",
+    "cpu_freq_mhz": 160,
+    "psram_enabled": false
+  },
+  "model": {
+    "name": "TinyLlama-260K",
+    "dim": 64,
+    "hidden_dim": 172,
+    "n_layers": 5,
+    "n_heads": 8,
+    "n_kv_heads": 4,
+    "vocab_size": 512,
+    "total_params": 264128,
+    "weights_bytes": 1056540,
+    "storage_mode": "Zero-Copy Flash XIP (DROM)"
+  },
+  "benchmark_results": {
+    "prompt": "once upon a time",
+    "tokens_generated": 48,
+    "total_time_seconds": 8.927,
+    "tokens_per_second": 5.38,
+    "mean_latency_ms": 186.0,
+    "jitter_ms": 12.38,
+    "memory_strategy": "Zero-Allocation Static High-Speed SRAM Pool",
+    "dynamic_allocations_per_token": 0,
+    "free_sram_bytes": 186540
+  }
+}
