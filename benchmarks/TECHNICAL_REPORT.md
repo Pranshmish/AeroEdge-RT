@@ -78,7 +78,7 @@ Every autoregressive token passes through 4 distinct stages measured via microse
 
 > [!NOTE]
 > **Why Stage 2 (Attention) achieved the highest speedup (3.18x)**:  
-> In Experiment B, Layer 0's $W_q, W_k, W_v, W_o$ projections reside in 0-wait-state Internal SRAM (`sram_layer0_data`), eliminating the 4-cycle Flash XIP cache stall penalty on every attention pass.
+> In Experiment B, Layer 0's $W_q, W_k, W_v, W_o$ projections reside in 0-wait-state Internal SRAM (`sram_layer0_data`), eliminating SPI Flash bus stalls during the initial feature transformation.
 
 ---
 
@@ -86,8 +86,8 @@ Every autoregressive token passes through 4 distinct stages measured via microse
 
 ![CPU Cycles and Energy Efficiency](figures/figure3_cpu_cycles_and_energy.png)
 
-- **CPU Cycle Savings**: On Xtensa LX6 @ 240 MHz, each Float32 multiply-accumulate requires multi-cycle floating-point pipeline steps. In contrast, INT8 4-way integer multiply-accumulate collapses 4 operations into single integer instructions, saving **12.05 Million clock cycles per token**.
-- **Energy per Token**: At typical active operating levels ($3.3\text{V} \times 240\text{mA} = 792\text{ mW}$), the energy footprint drops from **60.59 mJ** to **20.83 mJ** per token, extending battery operating lifetime by nearly 3x.
+- **CPU Cycle Savings**: On Xtensa LX6 @ 240 MHz, each Float32 multiply-accumulate requires multi-cycle floating-point pipeline steps. In contrast, INT8 4-way integer multiply-accumulate collapses 4 operations into packed integer instructions, saving **12.05 Million clock cycles per token**.
+- **Energy per Token**: Under the unified 462.0 mW power baseline ($3.3\text{V} \times 140\text{mA}$ active dual-core saturated), electrical energy drops from **35.36 mJ** to **12.16 mJ** per token (**65.6% reduction**), extending battery operating lifetime by nearly 3x.
 
 ---
 
@@ -96,15 +96,15 @@ Every autoregressive token passes through 4 distinct stages measured via microse
 ![Memory Footprint and Quantization](figures/figure4_memory_and_quantization.png)
 
 - **Flash Footprint**: Compressed from **1,056.5 KB** down to **423.7 KB** (**2.49x reduction**), allowing the full model, tokenizer vocabulary, and dual-core application to fit comfortably within the 4MB SPI Flash without requiring PSRAM.
-- **SRAM Safety**: Out of the available internal SRAM, **166,492 Bytes** remain free and untouched, ensuring zero heap exhaustion or stack collision under FreeRTOS.
+- **SRAM Safety**: Out of the available internal SRAM, **164,380 Bytes** of dynamic heap remain free, with the 23.3 KB Layer 0 cache and 80.0 KB KV-cache cleanly isolated in static BSS pools.
 
 ---
 
-### Figure 5: Autoregressive Timeline & Deterministic Jitter
+### Figure 5: Autoregressive Timeline & Prefill-to-Decode Variance
 
 ![Autoregressive Timeline and Jitter](figures/figure5_autoregressive_timeline_jitter.png)
 
-- Over 48 continuous autoregressive generation steps, inference exhibits minimal latency drift ($<2.5\text{ ms}$ due to KV cache growth) and deterministic execution variance ($7.22\text{ ms}$ jitter bound under real-time priority).
+- Over 48 continuous autoregressive generation steps, inference exhibits minimal latency drift ($<1.8\text{ ms}$ due to KV cache access). The measured $7.22\text{ ms}$ spread represents the divergence between prompt prefill setup (~33.5 ms) and steady-state autoregressive decoding (~26.3 ms).
 
 ---
 
@@ -371,13 +371,13 @@ We evaluated next-token prediction stability and perplexity between unquantized 
 
 ### 8.4 Model Weight Storage & Parameter Footprint Clarification
 The model weight binary distributions correspond to the following parameter allocations:
-- **`model.bin` (1,056,540 bytes)**: Exactly 264,135 Float32 parameters ($264,135 \times 4\text{ bytes} = 1,056,540\text{ bytes}$), representing the stories260K architecture ($\text{dim}=64, \text{hidden}=172, \text{layers}=5, \text{heads}=8, \text{vocab}=512$).
+- **`model.bin` (1,056,540 bytes)**: Exactly 264,128 Float32 parameters ($264,128 \times 4\text{ bytes} = 1,056,512\text{ bytes}$) plus a 28-byte configuration header = **1,056,540 bytes (1.01 MB)**, representing the stories260K architecture ($\text{dim}=64, \text{hidden}=172, \text{layers}=5, \text{heads}=8, \text{vocab}=512$).
 - **`model_q8.bin` (423,676 bytes)**: 
   - 260,000 INT8 quantized matrix weights = **260,000 bytes (253.9 KB)**.
-  - Token embedding table and RMSNorm weights retained as Float32 for numerical stability = **34,816 bytes (34.0 KB)**.
+  - Token embedding table ($512 \times 64 \times 4\text{ bytes} = 131,072\text{ bytes}$) and RMSNorm weights retained as unquantized Float32 for numerical fidelity = **131,328 bytes (128.3 KB)**.
   - Per-row floating-point scale factors = **16,384 bytes (16.0 KB)**.
-  - Header metadata, alignment padding, and partition table structures = **112,476 bytes**.
-  - Total binary file size = **423,676 bytes (413.7 KB)**.
+  - Alignment padding, model config header, and partition structures = **15,964 bytes (15.6 KB)**.
+  - **Total verified binary file size** = $260,000 + 131,328 + 16,384 + 15,964 = \mathbf{423,676\text{ bytes (413.7 KB)}}$.
 
 ---
 
