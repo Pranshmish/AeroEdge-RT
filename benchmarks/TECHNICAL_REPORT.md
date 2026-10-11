@@ -3,7 +3,7 @@
 **Platform Under Test**: ESP32-D0WD-V3 (Xtensa LX6 Dual-Core @ 240 MHz, 4MB Flash @ 80 MHz DIO)  
 **Target Model**: stories260K (llama2.c TinyStories architecture: $\text{dim}=64, \text{hidden}=172, \text{layers}=5, \text{heads}=8, \text{vocab}=512$)  
 **Baseline Reference**: [Edge-LLM](../Edge-LLM) Dual-Core Float32 Architecture  
-**Code Repository Commit**: `baf1444`  
+**Code Repository Commit**: `9b10aec`  
 
 
 ---
@@ -309,7 +309,7 @@ This section presents the empirical evaluation isolating individual runtime comp
 ---
 
 ### 8.1 Full $2 \times 2 \times 2$ Orthogonal Factorial Ablation Study
-To isolate the orthogonal performance contributions of processor core count, register-level SWAR instruction packing, and fast internal SRAM tiling without confounding variables, we executed a complete **$2 \times 2 \times 2$ Factorial Ablation Matrix** on the ESP32 (240 MHz Xtensa LX6, 48 tokens, 50 runs, commit `baf1444`), orthogonally varying:
+To isolate the orthogonal performance contributions of processor core count, register-level SWAR instruction packing, and fast internal SRAM tiling without confounding variables, we executed a complete **$2 \times 2 \times 2$ Factorial Ablation Matrix** on the ESP32 (240 MHz Xtensa LX6, 48 tokens, 50 runs, commit `9b10aec`), orthogonally varying:
 1. **Core Allocation**: 1 Core vs 2 Cores
 2. **Instruction Arithmetic**: Scalar Float32 / INT8 vs SWAR (32-bit register packing)
 3. **Memory Placement**: 100% Flash XIP vs Layer 0 Hot SRAM Cache (23.3 KB)
