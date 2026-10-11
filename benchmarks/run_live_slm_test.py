@@ -31,7 +31,7 @@ def run_test(cmd, wait_time=15):
     while time.time() - start < wait_time:
         if ser.in_waiting:
             chunk = ser.read(ser.in_waiting).decode("utf-8", errors="replace")
-            sys.stdout.write(chunk)
+            sys.stdout.write(chunk.encode("ascii", errors="replace").decode("ascii"))
             sys.stdout.flush()
             last_recv = time.time()
             if "Enter prompt: " in chunk and (time.time() - start > 1.5):
@@ -51,7 +51,9 @@ if __name__ == "__main__":
     target = sys.argv[1] if len(sys.argv) > 1 else "BABY"
     tokens = sys.argv[2] if len(sys.argv) > 2 else "48"
     
-    if target.upper() == "BABY":
+    if target.upper() == "ROOFLINE":
+        run_test("ROOFLINE", wait_time=8)
+    elif target.upper() == "BABY":
         run_test(f"BABY {tokens}", wait_time=12)
     elif target.upper() == "STORIES":
         run_test(f"STORIES {tokens}", wait_time=18)
@@ -65,3 +67,4 @@ if __name__ == "__main__":
         run_test("C", wait_time=15)
     else:
         run_test(f"{target} {tokens}", wait_time=12)
+
