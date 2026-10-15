@@ -3,10 +3,24 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Hardware-ESP32--S3%20%7C%20ESP32-red.svg)](https://www.espressif.com/)
 [![Standard](https://img.shields.io/badge/C%2B%2B-17-green.svg)](https://en.cppreference.com/w/cpp/17)
+[![Research Paper](https://img.shields.io/badge/Research%20Paper-PDF%20Manuscript-orange.svg)](docs/AeroEdge_RT_Whitepaper.pdf)
+[![Drive Mirror](https://img.shields.io/badge/Google%20Drive-Mirror-blue.svg)](https://drive.google.com/file/d/1CS31ckhWNNxFiQQLvMBmvAWz_BJrB7_z/view?usp=sharing)
 [![Determinism](https://img.shields.io/badge/Jitter-%3C0.001%25-brightgreen.svg)]()
 [![Memory](https://img.shields.io/badge/Dynamic%20Allocations-0.00%20bytes-purple.svg)]()
 
 > **"A deterministic, zero-allocation micro-kernel and INT8 execution engine for dual-core microcontrollers that achieves sub-10ms edge vision inference and 12+ tok/s SLM token generation through SIMD vectorization, hardware DMA double-buffering, and asynchronous core-isolated scheduling — eliminating RTOS preemption jitter and reducing memory stalls by 64%."**
+
+---
+
+## 📄 Technical White Paper & Research Specification
+
+> **Full Paper**: *AeroEdge-RT: Optimizing Transformer Inference on Resource-Constrained Microcontrollers — An Engineering Study of INT8 Quantization, Dual-Core Execution, and Memory-Aware Optimization on ESP32-WROOM*  
+> **Author**: Pranshul Mishra  
+
+- 📥 **Read Direct PDF**: [`docs/AeroEdge_RT_Whitepaper.pdf`](docs/AeroEdge_RT_Whitepaper.pdf)
+- 🌐 **Google Drive Mirror**: [Open PDF on Google Drive](https://drive.google.com/file/d/1CS31ckhWNNxFiQQLvMBmvAWz_BJrB7_z/view?usp=sharing)
+- 📦 **LaTeX & Overleaf Source**: [`docs/paper/`](docs/paper/) (`AeroEdge_RT_Whitepaper.tex`, `REFERENCES.bib`, `figures/`)
+
 
 ---
 
