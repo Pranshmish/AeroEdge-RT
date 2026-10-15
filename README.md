@@ -1,30 +1,30 @@
-# AeroEdge-RT ⚡
+# AeroEdge-RT
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Hardware-ESP32--S3%20%7C%20ESP32-red.svg)](https://www.espressif.com/)
 [![Standard](https://img.shields.io/badge/C%2B%2B-17-green.svg)](https://en.cppreference.com/w/cpp/17)
-[![Research Paper](https://img.shields.io/badge/Research%20Paper-PDF%20Manuscript-orange.svg)](docs/AeroEdge_RT_Whitepaper.pdf)
-[![Drive Mirror](https://img.shields.io/badge/Google%20Drive-Mirror-blue.svg)](https://drive.google.com/file/d/1CS31ckhWNNxFiQQLvMBmvAWz_BJrB7_z/view?usp=sharing)
-[![Determinism](https://img.shields.io/badge/Jitter-%3C0.001%25-brightgreen.svg)]()
-[![Memory](https://img.shields.io/badge/Dynamic%20Allocations-0.00%20bytes-purple.svg)]()
+[![Paper](https://img.shields.io/badge/Paper-PDF%20Manuscript-004080.svg)](docs/AeroEdge_RT_Whitepaper.pdf)
+[![Drive Mirror](https://img.shields.io/badge/Drive%20Mirror-Google%20Drive-4285F4.svg)](https://drive.google.com/file/d/1CS31ckhWNNxFiQQLvMBmvAWz_BJrB7_z/view?usp=sharing)
+[![Determinism](https://img.shields.io/badge/Jitter-%3C0.001%25-2e7d32.svg)]()
+[![Dynamic Allocations](https://img.shields.io/badge/Dynamic%20Allocations-0.00%20bytes-4a148c.svg)]()
 
 > **"A deterministic, zero-allocation micro-kernel and INT8 execution engine for dual-core microcontrollers that achieves sub-10ms edge vision inference and 12+ tok/s SLM token generation through SIMD vectorization, hardware DMA double-buffering, and asynchronous core-isolated scheduling — eliminating RTOS preemption jitter and reducing memory stalls by 64%."**
 
 ---
 
-## 📄 Technical White Paper & Research Specification
+## Technical White Paper & Research Specification
 
-> **Full Paper**: *AeroEdge-RT: Optimizing Transformer Inference on Resource-Constrained Microcontrollers — An Engineering Study of INT8 Quantization, Dual-Core Execution, and Memory-Aware Optimization on ESP32-WROOM*  
+> **Title**: *AeroEdge-RT: Optimizing Transformer Inference on Resource-Constrained Microcontrollers — An Engineering Study of INT8 Quantization, Dual-Core Execution, and Memory-Aware Optimization on ESP32-WROOM*  
 > **Author**: Pranshul Mishra  
+> **Affiliation**: Department of Electronics & Communication Engineering, MMMUT Gorakhpur  
 
-- 📥 **Read Direct PDF**: [`docs/AeroEdge_RT_Whitepaper.pdf`](docs/AeroEdge_RT_Whitepaper.pdf)
-- 🌐 **Google Drive Mirror**: [Open PDF on Google Drive](https://drive.google.com/file/d/1CS31ckhWNNxFiQQLvMBmvAWz_BJrB7_z/view?usp=sharing)
-- 📦 **LaTeX & Overleaf Source**: [`docs/paper/`](docs/paper/) (`AeroEdge_RT_Whitepaper.tex`, `REFERENCES.bib`, `figures/`)
-
+- **Full Document (PDF)**: [`docs/AeroEdge_RT_Whitepaper.pdf`](docs/AeroEdge_RT_Whitepaper.pdf) (1.93 MB publication-ready paper)
+- **Drive Mirror**: [Google Drive Direct View](https://drive.google.com/file/d/1CS31ckhWNNxFiQQLvMBmvAWz_BJrB7_z/view?usp=sharing)
+- **LaTeX & Overleaf Source**: [`docs/paper/`](docs/paper/) (Includes `AeroEdge_RT_Whitepaper.tex`, `REFERENCES.bib`, and all 18 high-resolution benchmark figures)
 
 ---
 
-## 🏛️ System Architecture
+## System Architecture
 
 ```
                         AeroEdge-RT SYSTEM ARCHITECTURE
@@ -51,7 +51,7 @@
 
 ---
 
-## 🔬 The 4 Foundational Technical Innovations
+## Core Technical Innovations
 
 ### 1. Asymmetric Dual-Core Isolation (Core 0 vs Core 1)
 * **The Problem**: Standard RTOS runtimes (FreeRTOS, Zephyr) run inference threads subject to SysTick interrupts, Wi-Fi beacons, and bus contention, introducing unpredictable 15%–25% latency jitter ($p_{99}$ spikes). In agile edge robotics, this jitter can destabilize motor control loops and cause crashes.
@@ -75,7 +75,7 @@
 
 ---
 
-## 📊 Proof-of-Concept Empirical Benchmarks
+## Empirical Benchmarks & Performance Analysis
 
 ### Benchmark 1: Inference Latency vs SOTA Baselines
 Tested on ESP32-S3 @ 240 MHz:
@@ -111,7 +111,7 @@ Measured over 10,000 continuous inference iterations on Core 1 while Core 0 exec
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 AeroEdge-RT/
@@ -144,12 +144,14 @@ AeroEdge-RT/
 │   ├── memory_profile.py           # Automated SRAM vs PSRAM analyzer
 │   └── serial_latency_logger.py    # Live UART telemetry & jitter analyzer
 └── docs/
-    └── ARCHITECTURE_SPEC.md        # Academic Whitepaper & Mathematical Formulations
+    ├── AeroEdge_RT_Whitepaper.pdf  # Publication-grade technical white paper
+    ├── ARCHITECTURE_SPEC.md        # Academic specification & formulations
+    └── paper/                      # LaTeX manuscript, BIB references & 18 figures
 ```
 
 ---
 
-## 🚀 Quickstart & Reproduction
+## Build & Reproduction Guide
 
 ### 1. Build via PlatformIO
 ```bash
@@ -179,13 +181,15 @@ python benchmarks/serial_latency_logger.py --simulate
 
 ---
 
-## 📖 Citation
+## Citation
 
 ```bibtex
-@software{aeroedge_rt_2026,
-  author = {Pranshu Mishra},
-  title = {AeroEdge-RT: Autonomous Micro-Kernel and Quantized Inference Engine for Constrained Silicon},
-  year = {2026},
-  url = {https://github.com/Pranshmish/AeroEdge-RT}
+@article{mishra2026aeroedgert,
+  author    = {Pranshul Mishra},
+  title     = {AeroEdge-RT: Optimizing Transformer Inference on Resource-Constrained Microcontrollers},
+  journal   = {Technical White Paper & Engineering Specification},
+  year      = {2026},
+  publisher = {Department of Electronics & Communication Engineering, MMMUT},
+  url       = {https://github.com/Pranshmish/AeroEdge-RT}
 }
 ```
